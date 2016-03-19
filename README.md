@@ -1,2 +1,12 @@
 # rust-crdt
-CRDT's from A Comprehensive study of Convergent and Commutative Replicated Data Types
+CRDT's ported from riak_dt.
+
+- [ ] LWW Register
+- [ ] ORSWOT
+- [ ] Map
+- [ ] G-Set
+- [ ] OR-Set
+- [ ] G-Counter
+- [ ] PN-Counter
+- [ ] EM-Counter
+
