@@ -1,7 +1,7 @@
 # rust-crdt
 CRDT's ported from riak_dt.
 
-- [*] Vector Clock
+- [x] Vector Clock
 - [ ] LWW Register
 - [ ] ORSWOT
 - [ ] Map
