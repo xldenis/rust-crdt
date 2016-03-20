@@ -13,8 +13,10 @@
 use std::cmp::{self, Ordering};
 use std::collections::BTreeMap;
 
+pub type Dot = u64;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VClock<A: Ord>(BTreeMap<A, u64>);
+pub struct VClock<A: Ord>(BTreeMap<A, Dot>);
 
 impl<A: Ord> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
@@ -49,7 +51,7 @@ impl<A: Ord> VClock<A> {
     /// assert!(a > b);
     /// ```
     ///
-    pub fn witness(&mut self, actor: A, counter: u64) {
+    pub fn witness(&mut self, actor: A, counter: Dot) {
         if !self.contains_descendent_element(&actor, &counter) {
             self.0.insert(actor, counter);
         }
@@ -102,7 +104,7 @@ impl<A: Ord> VClock<A> {
     /// Generally prefer using the higher-level comparison operators
     /// between vclocks over this specific method.
     #[inline]
-    pub fn contains_descendent_element(&self, actor: &A, counter: &u64) -> bool {
+    pub fn contains_descendent_element(&self, actor: &A, counter: &Dot) -> bool {
         self.0.get(actor)
               .map(|our_counter| our_counter >= counter)
               .unwrap_or(false)
