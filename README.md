@@ -14,6 +14,7 @@ Afterwards, either check out the [riak dt](https://github.com/basho/riak_dt) sou
 - [ ] G-Counter
 - [ ] PN-Counter
 - [ ] EM-Counter
+- [ ] serialization
 
 # references
 

@@ -13,18 +13,20 @@
 use std::cmp::{self, Ordering};
 use std::collections::BTreeMap;
 
-pub type Dot = u64;
+pub type Counter = u64;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VClock<A: Ord>(BTreeMap<A, Dot>);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, RustcEncodable, RustcDecodable)]
+pub struct VClock<A: Ord + Clone> {
+    dots: BTreeMap<A, Counter>
+}
 
-impl<A: Ord> PartialOrd for VClock<A> {
+impl<A: Ord + Clone> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
-        } else if other.0.iter().all(|(w, c)| self.contains_descendent_element(w, c)) {
+        } else if other.dots.iter().all(|(w, c)| self.contains_descendent_element(w, c)) {
             Some(Ordering::Greater)
-        } else if self.0.iter().all(|(w, c)| other.contains_descendent_element(w, c)) {
+        } else if self.dots.iter().all(|(w, c)| other.contains_descendent_element(w, c)) {
             Some(Ordering::Less)
         } else {
             None
@@ -32,9 +34,11 @@ impl<A: Ord> PartialOrd for VClock<A> {
     }
 }
 
-impl<A: Ord> VClock<A> {
+impl<A: Ord + Clone> VClock<A> {
     pub fn new() -> VClock<A> {
-        VClock(BTreeMap::new())
+        VClock {
+            dots: BTreeMap::new()
+        }
     }
 
     /// For a particular actor, possibly store a new counter
@@ -51,9 +55,9 @@ impl<A: Ord> VClock<A> {
     /// assert!(a > b);
     /// ```
     ///
-    pub fn witness(&mut self, actor: A, counter: Dot) {
+    pub fn witness(&mut self, actor: A, counter: Counter) {
         if !self.contains_descendent_element(&actor, &counter) {
-            self.0.insert(actor, counter);
+            self.dots.insert(actor, counter);
         }
     }
 
@@ -71,11 +75,12 @@ impl<A: Ord> VClock<A> {
     /// assert!(a > b);
     /// ```
     ///
-    pub fn increment(&mut self, actor: A) {
-        let current = self.0.get(&actor)
+    pub fn increment(&mut self, actor: A) -> Counter {
+        let next = self.dots.get(&actor)
                             .map(|c| *c)
-                            .unwrap_or(0);
-        self.0.insert(actor, current + 1);
+                            .unwrap_or(0) + 1;
+        self.dots.insert(actor, next);
+        next
     }
 
     /// Merge another vector clock into this one, without
@@ -95,7 +100,7 @@ impl<A: Ord> VClock<A> {
     /// ```
     ///
     pub fn merge(&mut self, other: VClock<A>) {
-        for (w, c) in other.0.into_iter() {
+        for (w, c) in other.dots.into_iter() {
             self.witness(w, c)
         }
     }
@@ -104,8 +109,8 @@ impl<A: Ord> VClock<A> {
     /// Generally prefer using the higher-level comparison operators
     /// between vclocks over this specific method.
     #[inline]
-    pub fn contains_descendent_element(&self, actor: &A, counter: &Dot) -> bool {
-        self.0.get(actor)
+    pub fn contains_descendent_element(&self, actor: &A, counter: &Counter) -> bool {
+        self.dots.get(actor)
               .map(|our_counter| our_counter >= counter)
               .unwrap_or(false)
     }
@@ -123,6 +128,23 @@ impl<A: Ord> VClock<A> {
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
         self.partial_cmp(other).is_none()
+    }
+
+    /// Return the associated counter for this actor, if present.
+    pub fn get_counter(&self, actor: &A) -> Option<Counter> {
+        self.dots.get(actor).map(|counter| *counter)
+    }
+
+    /// Return the difference in dots between self and a provided dots map.
+    pub fn subtract_dots(&self, dots: BTreeMap<A, Counter>) -> BTreeMap<A, Counter> {
+        let mut ret = self.dots.clone();
+        for (actor, counter) in dots.iter() {
+            let diff = ret.get(actor).map(|c| *c).unwrap_or(0) - counter;
+            if diff <= 0 {
+                ret.remove(actor);
+            }
+        }
+        ret
     }
 }
 
