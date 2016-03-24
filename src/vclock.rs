@@ -114,8 +114,8 @@ impl<A: Ord + Clone> VClock<A> {
     #[inline]
     pub fn contains_descendent_element(&self, actor: &A, counter: &Counter) -> bool {
         self.dots.get(actor)
-              .map(|our_counter| our_counter >= counter)
-              .unwrap_or(false)
+                 .map(|our_counter| our_counter >= counter)
+                 .unwrap_or(false)
     }
 
     /// True if two vector clocks have diverged.

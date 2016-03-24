@@ -1,4 +1,4 @@
-//! The `orswot` crate provides an implementation of the OR-Set without tombstones (ORSWOT).
+//! The `orswot` crate provides an implementation of the addition-biased OR-Set without tombstones (ORSWOT).
 //!
 //! # Examples
 //!
@@ -26,7 +26,6 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     pub fn add(&mut self, member: Member, actor: Actor) {
         let counter = self.clock.increment(actor.clone());
 
-        // TODO(tyler) riak_dt doesn't merge entry clocks on add.  Is this a bug?
         let mut entry_clock = VClock::new();
         entry_clock.witness(actor, counter).unwrap();
 
