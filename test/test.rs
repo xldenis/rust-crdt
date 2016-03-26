@@ -1,1 +1,1 @@
-extern crate crdt;
+extern crate crdts;

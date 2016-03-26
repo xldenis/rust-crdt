@@ -1,4 +1,3 @@
-#![crate_id = "crdt"]
 #![crate_type = "lib"]
 
 pub use vclock::VClock;

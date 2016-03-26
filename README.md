@@ -6,8 +6,8 @@ Afterwards, either check out the [riak dt](https://github.com/basho/riak_dt) sou
 
 
 - [x] Vector Clock
+- [x] ORSWOT
 - [ ] LWW Register
-- [ ] ORSWOT
 - [ ] Map
 - [ ] G-Set
 - [ ] OR-Set

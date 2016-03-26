@@ -3,7 +3,7 @@
 //! # Examples
 //!
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::VClock;
 
@@ -11,7 +11,7 @@ use super::VClock;
 pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
-    deferred: BTreeMap<VClock<Actor>, Vec<Member>>,
+    deferred: BTreeMap<VClock<Actor>, BTreeSet<Member>>,
 }
 
 impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
@@ -33,7 +33,9 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     }
 
     pub fn add_all(&mut self, members: Vec<(Member, Actor)>) {
-        members.into_iter().map(|(member, actor)| self.add(member, actor));
+        for (member, actor) in members.into_iter() {
+            self.add(member, actor);
+        }
     }
 
     // drop the element out, ignoring the vclock for the element and orswot
@@ -41,23 +43,211 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
         self.entries.remove(&member)
     }
 
+    pub fn remove_with_context(&mut self, member: Member,
+                               context: &VClock<Actor>)
+                               -> Option<VClock<Actor>> {
+        if context.dominating_vclock(self.clock.clone()).is_empty() {
+            self.entries.remove(&member)
+        } else {
+            let mut deferred_drops = self.deferred.remove(context).unwrap_or(BTreeSet::new());
+            deferred_drops.insert(member);
+            self.deferred.insert(context.clone(), deferred_drops);
+            None
+        }
+    }
+
     pub fn remove_all(&mut self, members: Vec<Member>) -> Vec<Option<VClock<Actor>>> {
         members.into_iter().map(|member| self.remove(member)).collect()
+    }
+
+    pub fn remove_all_with_context(&mut self,
+                                   members: Vec<Member>,
+                                   context: &VClock<Actor>)
+                                   -> Vec<Option<VClock<Actor>>> {
+        members.into_iter().map(|member| self.remove_with_context(member, context)).collect()
     }
 
     pub fn value(&self) -> Vec<Member> {
         self.entries.keys().cloned().collect()
     }
 
-    pub fn merge(&mut self, other: Orswot<Member, Actor>) {
-        self.clock.merge(other.clock);
+    /// Merge combines another `Orswot` with this one.
+    ///
+    pub fn merge(&mut self, mut other: Orswot<Member, Actor>) {
+        let mut keep = BTreeMap::new();
+        for (entry, clock) in self.entries.clone().into_iter() {
+            if !other.entries.contains_key(&entry) {
+                // other doesn't contain this entry because it:
+                //  1. has witnessed it and dropped it
+                //  2. hasn't witnessed it
+                if clock.dominating_vclock(other.clock.clone()).is_empty() {
+                    // the other orswot has witnessed the entry's clock, and dropped this entry
+                } else {
+                    // the other orswot has not witnessed this add, so add it
+                    keep.insert(entry, clock);
+                }
+            } else {
+                // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
+                // shouldn't drop it!
+                let common = clock.intersection(other.clone().clock);
+                let luniq = clock.dominating_vclock(common.clone());
+                let runiq = other.clone().clock.dominating_vclock(common.clone());
+                let lkeep = luniq.dominating_vclock(other.clone().clock);
+                let rkeep = runiq.dominating_vclock(self.clone().clock);
+                // Perfectly possible that an item in both sets should be dropped
+                let mut common = common;
+                common.merge(lkeep);
+                common.merge(rkeep);
+                if !common.is_empty() {
+                    // we should not drop, as there are common clocks
+                } else {
+                    keep.insert(entry.clone(), clock);
+                }
+                // don't want to consider this again below
+                other.entries.remove(&entry).unwrap();
+            }
+        }
+
+        for (entry, clock) in other.entries.clone().into_iter() {
+            let dom_clock = clock.dominating_vclock(self.clock.clone());
+            if !dom_clock.is_empty() {
+                // other has witnessed a novel addition, so add it
+                keep.insert(entry, dom_clock);
+            }
+        }
+
+        // merge deferred removals
+        for (clock, mut deferred) in self.deferred.iter_mut() {
+            let other_deferred = other.deferred.remove(clock).unwrap_or(BTreeSet::new());
+            for e in other_deferred.into_iter() {
+                deferred.insert(e);
+            }
+        }
+
+        self.entries = keep;
+
+        // merge vclocks
+        self.clock.merge(other.clone().clock);
+
+        self.apply_deferred();
     }
 
-    fn merge_deferred(&mut self, deferred: BTreeMap<VClock<Actor>, Vec<Member>>) {}
-    pub fn equal() {}
-    pub fn precondition_context() {}
-    pub fn stats() {}
-    pub fn stat() {}
-    pub fn parent_clock() {}
-    pub fn to_version() {}
+    fn apply_deferred(&mut self) {
+        let deferred = self.deferred.clone();
+        self.deferred = BTreeMap::new();
+        for (clock, entries) in deferred.into_iter() {
+            self.remove_all_with_context(entries.into_iter().collect(), &clock);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_disjoint_merge() {
+        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        a.add("bar", "A");
+        assert_eq!(a.value(), vec!["bar"]);
+        b.add("baz", "B");
+        assert_eq!(b.value(), vec!["baz"]);
+        let mut c = a.clone();
+        assert_eq!(c.value(), vec!["bar"]);
+        c.merge(b);
+        assert_eq!(c.value(), vec!["bar", "baz"]);
+        a.remove("bar");
+        let mut d = a.clone();
+        d.merge(c);
+        assert_eq!(d.value(), vec!["baz"]);
+    }
+
+    #[test]
+    fn test_present_but_removed() {
+
+    }
+    /*
+
+%% Bug found by EQC, not dropping dots in merge when an element is
+%% present in both Sets leads to removed items remaining after merge.
+present_but_removed_test() ->
+    %% Add Z to A
+    {ok, A} = update({add, 'Z'}, a, new()),
+    %% Replicate it to C so A has 'Z'->{e, 1}
+    C = A,
+    %% Remove Z from A
+    {ok, A2} = update({remove, 'Z'}, a, A),
+    %% Add Z to B, a new replica
+    {ok, B} = update({add, 'Z'}, b, new()),
+    %%  Replicate B to A, so now A has a Z, the one with a Dot of
+    %%  {b,1} and clock of [{a, 1}, {b, 1}]
+    A3 = merge(B, A2),
+    %% Remove the 'Z' from B replica
+    {ok, B2} = update({remove, 'Z'}, b, B),
+    %% Both C and A have a 'Z', but when they merge, there should be
+    %% no 'Z' as C's has been removed by A and A's has been removed by
+    %% C.
+    Merged = lists:foldl(fun(Set, Acc) ->
+                                 merge(Set, Acc) end,
+                         %% the order matters, the two replicas that
+                         %% have 'Z' need to merge first to provoke
+                         %% the bug. You end up with 'Z' with two
+                         %% dots, when really it should be removed.
+                         A3,
+                         [C, B2]),
+    ?assertEqual([], value(Merged)).
+
+%% A bug EQC found where dropping the dots in merge was not enough if
+%% you then store the value with an empty clock (derp).
+no_dots_left_test() ->
+    {ok, A} = update({add, 'Z'}, a, new()),
+    {ok, B} = update({add, 'Z'}, b, new()),
+    C = A, %% replicate A to empty C
+    {ok, A2} = riak_dt_orswot:update({remove, 'Z'}, a, A),
+    %% replicate B to A, now A has B's 'Z'
+    A3 = riak_dt_orswot:merge(A2, B),
+    %% Remove B's 'Z'
+    {ok, B2} = riak_dt_orswot:update({remove, 'Z'}, b, B),
+    %% Replicate C to B, now B has A's old 'Z'
+    B3 = riak_dt_orswot:merge(B2, C),
+    %% Merge everytyhing, without the fix You end up with 'Z' present,
+    %% with no dots
+    Merged = lists:foldl(fun(Set, Acc) ->
+                                 merge(Set, Acc) end,
+                         A3,
+                         [B3, C]),
+    ?assertEqual([], value(Merged)).
+
+%% A test I thought up
+%% - existing replica of ['A'] at a and b,
+%% - add ['B'] at b, but not communicated to any other nodes, context returned to client
+%% - b goes down forever
+%% - remove ['A'] at a, using the context the client got from b
+%% - will that remove happen?
+%%   case for shouldn't: the context at b will always be bigger than that at a
+%%   case for should: we have the information in dots that may allow us to realise it can be removed
+%%     without us caring.
+%%
+%% as the code stands, 'A' *is* removed, which is almost certainly correct. This behaviour should
+%% always happen, but may not. (ie, the test needs expanding)
+dead_node_update_test() ->
+    {ok, A} = update({add, 'A'}, a, new()),
+    {ok, B} = update({add, 'B'}, b, A),
+    BCtx = precondition_context(B),
+    {ok, A2} = update({remove, 'A'}, a, A, BCtx),
+    ?assertEqual([], value(A2)).
+
+%% Batching should not re-order ops
+batch_order_test() ->
+    {ok, Set} = update({add_all, [<<"bar">>, <<"baz">>]}, a, new()),
+    Context  = precondition_context(Set),
+    {ok, Set2} = update({update, [{remove, <<"baz">>}, {add, <<"baz">>}]}, a, Set, Context),
+    ?assertEqual([<<"bar">>, <<"baz">>], value(Set2)),
+    {ok, Set3} = update({update, [{remove, <<"baz">>}, {add, <<"baz">>}]}, a, Set),
+    ?assertEqual([<<"bar">>, <<"baz">>], value(Set3)),
+    {ok, Set4} = update({remove, <<"baz">>}, a, Set),
+    {ok, Set5} = update({add, <<"baz">>}, a, Set4),
+    ?assertEqual([<<"bar">>, <<"baz">>], value(Set5)).
+
+*/
 }
