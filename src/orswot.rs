@@ -6,16 +6,28 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use bincode::SizeLimit;
+use bincode::rustc_serialize::{encode, decode, DecodingResult};
+use rustc_serialize::{Encodable, Decodable};
+
 use super::VClock;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
-pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
+pub struct Orswot<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable + Decodable> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
     deferred: BTreeMap<VClock<Actor>, BTreeSet<Member>>,
 }
 
-impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
+impl<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable + Decodable> Orswot<Member, Actor> {
+    pub fn to_binary(&self) -> Vec<u8> {
+        encode(&self, SizeLimit::Infinite).unwrap()
+    }
+
+    pub fn from_binary(encoded: Vec<u8>) -> DecodingResult<Orswot<Member, Actor>> {
+        decode(&encoded[..])
+    }
+
     pub fn new() -> Orswot<Member, Actor> {
         Orswot {
             clock: VClock::new(),
@@ -152,24 +164,32 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
 
 #[cfg(test)]
 mod tests {
+    extern crate quickcheck;
+    extern crate rand;
+
+    use rustc_serialize::{Encodable, Decodable};
+    use self::quickcheck::{Arbitrary, Gen, Testable, QuickCheck, StdGen};
+    use self::rand::Rng;
+
     use super::*;
 
+    // TODO(tyler) perform quickchecking a la https://github.com/basho/riak_dt/blob/develop/src/riak_dt_orswot.erl#L625
     // port from riak_dt
     #[test]
     fn test_disjoint_merge() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        a.add("bar", "A");
-        assert_eq!(a.value(), vec!["bar"]);
-        b.add("baz", "B");
-        assert_eq!(b.value(), vec!["baz"]);
+        a.add("bar".to_string(), "A".to_string());
+        assert_eq!(a.value(), vec!["bar".to_string()]);
+        b.add("baz".to_string(), "B".to_string());
+        assert_eq!(b.value(), vec!["baz".to_string()]);
         let mut c = a.clone();
-        assert_eq!(c.value(), vec!["bar"]);
+        assert_eq!(c.value(), vec!["bar".to_string()]);
         c.merge(b);
-        assert_eq!(c.value(), vec!["bar", "baz"]);
-        a.remove("bar");
+        assert_eq!(c.value(), vec!["bar".to_string(), "baz".to_string()]);
+        a.remove("bar".to_string());
         let mut d = a.clone();
         d.merge(c);
-        assert_eq!(d.value(), vec!["baz"]);
+        assert_eq!(d.value(), vec!["baz".to_string()]);
     }
 
     // port from riak_dt
@@ -178,15 +198,15 @@ mod tests {
     #[test]
     fn test_present_but_removed() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        a.add("Z", "A");
+        a.add("Z".to_string(), "A".to_string());
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
-        a.remove("Z");
-        b.add("Z", "B");
+        a.remove("Z".to_string());
+        b.add("Z".to_string(), "B".to_string());
         // Replicate B to A, so now A has a Z, the one with a Dot of
         // {b,1} and clock of [{a, 1}, {b, 1}]
         a.merge(b.clone());
-        b.remove("Z");
+        b.remove("Z".to_string());
         // Both C and A have a 'Z', but when they merge, there should be
         // no 'Z' as C's has been removed by A and A's has been removed by
         // C.
@@ -201,18 +221,18 @@ mod tests {
     #[test]
     fn test_no_dots_left_test() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        a.add("Z", 1);
-        b.add("Z", 2);
+        a.add("Z".to_string(), 1);
+        b.add("Z".to_string(), 2);
         let c = a.clone();
-        a.remove("Z");
+        a.remove("Z".to_string());
         // replicate B to A, now A has B's 'Z'
         a.merge(b.clone());
-        assert_eq!(a.value(), vec!["Z"]);
-        b.remove("Z");
+        assert_eq!(a.value(), vec!["Z".to_string()]);
+        b.remove("Z".to_string());
         assert!(b.value().is_empty());
         // Replicate C to B, now B has A's old 'Z'
         b.merge(c);
-        assert_eq!(b.value(), vec!["Z"]);
+        assert_eq!(b.value(), vec!["Z".to_string()]);
         // Merge everytyhing, without the fix You end up with 'Z' present,
         // with no dots
         a.merge(b);
@@ -235,11 +255,11 @@ mod tests {
     #[test]
     fn test_dead_node_update() {
         let mut a = Orswot::new();
-        a.add("A", 1);
+        a.add("A".to_string(), 1);
         let mut b = a.clone();
-        b.add("B", 2);
+        b.add("B".to_string(), 2);
         let bctx = b.precondition_context();
-        a.remove_with_context("A", &bctx);
+        a.remove_with_context("A".to_string(), &bctx);
         assert!(a.value().is_empty());
     }
 }
