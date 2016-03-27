@@ -26,7 +26,8 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
 
     /// Add a single element.
     pub fn add(&mut self, member: Member, actor: Actor) {
-        // TODO(tyler) is this
+        // TODO(tyler) is this safe?  riak_dt performs a similar increment,
+        // but it doesn't seem to imply causality across divergent dots.
         let counter = self.clock.increment(actor.clone());
 
         let mut entry_clock = VClock::new();
