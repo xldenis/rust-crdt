@@ -15,7 +15,5 @@ path = "test/test.rs"
 [dependencies]
 rustc-serialize = "0.3.18"
 bincode = "0.5.1"
-
-[dev-dependencies]
 quickcheck = "0.2.27"
 rand = "0.3"

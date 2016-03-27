@@ -13,6 +13,9 @@
 use std::cmp::{Ordering};
 use std::collections::BTreeMap;
 
+use quickcheck::{Arbitrary, Gen};
+use rand::Rng;
+
 pub type Counter = u64;
 
 trait AddableU64 {
@@ -205,6 +208,25 @@ impl<A: Ord + Clone> VClock<A> {
     }
 }
 
+impl Arbitrary for VClock<u16> {
+    fn arbitrary<G: Gen>(g: &mut G) -> VClock<u16> {
+        let mut v = VClock::new();
+        for witness in 0..g.gen_range(0, 7) {
+            v.witness(witness, g.gen_range(1, 7)).unwrap();
+        }
+        v
+    }
+
+    fn shrink(&self) -> Box<Iterator<Item=VClock<u16>>> {
+        let mut smaller = vec![];
+        for k in self.dots.keys() {
+            let mut vc = self.clone();
+            vc.dots.remove(k);
+            smaller.push(vc)
+        }
+        Box::new(smaller.into_iter())
+    }
+}
 
 #[cfg(test)]
 mod tests {

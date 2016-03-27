@@ -9,6 +9,8 @@ pub mod orswot;
 
 extern crate rustc_serialize;
 extern crate bincode;
+extern crate quickcheck;
+extern crate rand;
 
 use bincode::SizeLimit;
 use bincode::rustc_serialize::{encode, decode, DecodingResult};
