@@ -19,7 +19,7 @@ trait AddableU64 {
     fn add_u64(&mut self, other: u64) -> Self;
 }
 
-#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
+#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash)]
 pub struct VClock<A: Ord + Clone> {
     dots: BTreeMap<A, Counter>
 }

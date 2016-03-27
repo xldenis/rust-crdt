@@ -6,28 +6,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use bincode::SizeLimit;
-use bincode::rustc_serialize::{encode, decode, DecodingResult};
-use rustc_serialize::{Encodable, Decodable};
-
 use super::VClock;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
-pub struct Orswot<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable + Decodable> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
     deferred: BTreeMap<VClock<Actor>, BTreeSet<Member>>,
 }
 
-impl<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable + Decodable> Orswot<Member, Actor> {
-    pub fn to_binary(&self) -> Vec<u8> {
-        encode(&self, SizeLimit::Infinite).unwrap()
-    }
-
-    pub fn from_binary(encoded: Vec<u8>) -> DecodingResult<Orswot<Member, Actor>> {
-        decode(&encoded[..])
-    }
-
+impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     pub fn new() -> Orswot<Member, Actor> {
         Orswot {
             clock: VClock::new(),
@@ -36,7 +24,9 @@ impl<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable
         }
     }
 
+    /// Add a single element.
     pub fn add(&mut self, member: Member, actor: Actor) {
+        // TODO(tyler) is this
         let counter = self.clock.increment(actor.clone());
 
         let mut entry_clock = VClock::new();
@@ -45,17 +35,20 @@ impl<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable
         self.entries.insert(member, entry_clock);
     }
 
+    /// Add several members.
     pub fn add_all(&mut self, members: Vec<Member>, actor: Actor) {
         for member in members.into_iter() {
             self.add(member, actor.clone());
         }
     }
 
-    // drop the element out, ignoring the vclock for the element and orswot
+    /// Remove a member without providing a witnessing context.
+    /// Returns an existing context `VClock` if it was present.
     pub fn remove(&mut self, member: Member) -> Option<VClock<Actor>> {
         self.entries.remove(&member)
     }
 
+    /// Remove a member using a witnessing context.
     pub fn remove_with_context(&mut self, member: Member,
                                context: &VClock<Actor>) {
         if *context > self.clock {
@@ -72,10 +65,12 @@ impl<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable
         }
     }
 
+    /// Remove multiple members, without providing a witnessing context.
     pub fn remove_all(&mut self, members: Vec<Member>) -> Vec<Option<VClock<Actor>>> {
         members.into_iter().map(|member| self.remove(member)).collect()
     }
 
+    /// Remove multiple members with a witnessing context.
     pub fn remove_all_with_context(&mut self,
                                    members: Vec<Member>,
                                    context: &VClock<Actor>) {
@@ -84,6 +79,7 @@ impl<Member: Ord + Clone + Encodable + Decodable, Actor: Ord + Clone + Encodable
         }
     }
 
+    /// Retrieve the current members.
     pub fn value(&self) -> Vec<Member> {
         self.entries.keys().cloned().collect()
     }
@@ -167,7 +163,6 @@ mod tests {
     extern crate quickcheck;
     extern crate rand;
 
-    use rustc_serialize::{Encodable, Decodable};
     use self::quickcheck::{Arbitrary, Gen, Testable, QuickCheck, StdGen};
     use self::rand::Rng;
 
