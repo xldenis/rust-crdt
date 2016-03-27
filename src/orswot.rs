@@ -32,9 +32,9 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
         self.entries.insert(member, entry_clock);
     }
 
-    pub fn add_all(&mut self, members: Vec<(Member, Actor)>) {
-        for (member, actor) in members.into_iter() {
-            self.add(member, actor);
+    pub fn add_all(&mut self, members: Vec<Member>, actor: Actor) {
+        for member in members.into_iter() {
+            self.add(member, actor.clone());
         }
     }
 
@@ -44,15 +44,18 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     }
 
     pub fn remove_with_context(&mut self, member: Member,
-                               context: &VClock<Actor>)
-                               -> Option<VClock<Actor>> {
-        if context.dominating_vclock(self.clock.clone()).is_empty() {
-            self.entries.remove(&member)
-        } else {
+                               context: &VClock<Actor>) {
+        if *context > self.clock {
             let mut deferred_drops = self.deferred.remove(context).unwrap_or(BTreeSet::new());
-            deferred_drops.insert(member);
+            deferred_drops.insert(member.clone());
             self.deferred.insert(context.clone(), deferred_drops);
-            None
+        }
+
+        if let Some(existing_context) = self.entries.remove(&member) {
+            let dom_clock = existing_context.dominating_vclock(context.clone());
+            if !dom_clock.is_empty() {
+                self.entries.insert(member, dom_clock);
+            }
         }
     }
 
@@ -62,9 +65,10 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
 
     pub fn remove_all_with_context(&mut self,
                                    members: Vec<Member>,
-                                   context: &VClock<Actor>)
-                                   -> Vec<Option<VClock<Actor>>> {
-        members.into_iter().map(|member| self.remove_with_context(member, context)).collect()
+                                   context: &VClock<Actor>) {
+        for member in members.into_iter() {
+            self.remove_with_context(member, context);
+        }
     }
 
     pub fn value(&self) -> Vec<Member> {
@@ -139,12 +143,17 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
             self.remove_all_with_context(entries.into_iter().collect(), &clock);
         }
     }
+
+    pub fn precondition_context(&self) -> VClock<Actor> {
+        self.clock.clone()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // port from riak_dt
     #[test]
     fn test_disjoint_merge() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
@@ -162,92 +171,74 @@ mod tests {
         assert_eq!(d.value(), vec!["baz"]);
     }
 
+    // port from riak_dt
+    // Bug found by EQC, not dropping dots in merge when an element is
+    // present in both Sets leads to removed items remaining after merge.
     #[test]
     fn test_present_but_removed() {
-
+        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        a.add("Z", "A");
+        // Replicate it to C so A has 'Z'->{e, 1}
+        let mut c = a.clone();
+        a.remove("Z");
+        b.add("Z", "B");
+        // Replicate B to A, so now A has a Z, the one with a Dot of
+        // {b,1} and clock of [{a, 1}, {b, 1}]
+        a.merge(b.clone());
+        b.remove("Z");
+        // Both C and A have a 'Z', but when they merge, there should be
+        // no 'Z' as C's has been removed by A and A's has been removed by
+        // C.
+        a.merge(b);
+        a.merge(c);
+        assert!(a.value().is_empty());
     }
-    /*
 
-%% Bug found by EQC, not dropping dots in merge when an element is
-%% present in both Sets leads to removed items remaining after merge.
-present_but_removed_test() ->
-    %% Add Z to A
-    {ok, A} = update({add, 'Z'}, a, new()),
-    %% Replicate it to C so A has 'Z'->{e, 1}
-    C = A,
-    %% Remove Z from A
-    {ok, A2} = update({remove, 'Z'}, a, A),
-    %% Add Z to B, a new replica
-    {ok, B} = update({add, 'Z'}, b, new()),
-    %%  Replicate B to A, so now A has a Z, the one with a Dot of
-    %%  {b,1} and clock of [{a, 1}, {b, 1}]
-    A3 = merge(B, A2),
-    %% Remove the 'Z' from B replica
-    {ok, B2} = update({remove, 'Z'}, b, B),
-    %% Both C and A have a 'Z', but when they merge, there should be
-    %% no 'Z' as C's has been removed by A and A's has been removed by
-    %% C.
-    Merged = lists:foldl(fun(Set, Acc) ->
-                                 merge(Set, Acc) end,
-                         %% the order matters, the two replicas that
-                         %% have 'Z' need to merge first to provoke
-                         %% the bug. You end up with 'Z' with two
-                         %% dots, when really it should be removed.
-                         A3,
-                         [C, B2]),
-    ?assertEqual([], value(Merged)).
+    // port from riak_dt
+    // A bug EQC found where dropping the dots in merge was not enough if
+    // you then store the value with an empty clock (derp).
+    #[test]
+    fn test_no_dots_left_test() {
+        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        a.add("Z", 1);
+        b.add("Z", 2);
+        let mut c = a.clone();
+        a.remove("Z");
+        // replicate B to A, now A has B's 'Z'
+        a.merge(b.clone());
+        assert_eq!(a.value(), vec!["Z"]);
+        b.remove("Z");
+        assert!(b.value().is_empty());
+        // Replicate C to B, now B has A's old 'Z'
+        b.merge(c);
+        assert_eq!(b.value(), vec!["Z"]);
+        // Merge everytyhing, without the fix You end up with 'Z' present,
+        // with no dots
+        a.merge(b);
+        assert!(a.value().is_empty());
+    }
 
-%% A bug EQC found where dropping the dots in merge was not enough if
-%% you then store the value with an empty clock (derp).
-no_dots_left_test() ->
-    {ok, A} = update({add, 'Z'}, a, new()),
-    {ok, B} = update({add, 'Z'}, b, new()),
-    C = A, %% replicate A to empty C
-    {ok, A2} = riak_dt_orswot:update({remove, 'Z'}, a, A),
-    %% replicate B to A, now A has B's 'Z'
-    A3 = riak_dt_orswot:merge(A2, B),
-    %% Remove B's 'Z'
-    {ok, B2} = riak_dt_orswot:update({remove, 'Z'}, b, B),
-    %% Replicate C to B, now B has A's old 'Z'
-    B3 = riak_dt_orswot:merge(B2, C),
-    %% Merge everytyhing, without the fix You end up with 'Z' present,
-    %% with no dots
-    Merged = lists:foldl(fun(Set, Acc) ->
-                                 merge(Set, Acc) end,
-                         A3,
-                         [B3, C]),
-    ?assertEqual([], value(Merged)).
-
-%% A test I thought up
-%% - existing replica of ['A'] at a and b,
-%% - add ['B'] at b, but not communicated to any other nodes, context returned to client
-%% - b goes down forever
-%% - remove ['A'] at a, using the context the client got from b
-%% - will that remove happen?
-%%   case for shouldn't: the context at b will always be bigger than that at a
-%%   case for should: we have the information in dots that may allow us to realise it can be removed
-%%     without us caring.
-%%
-%% as the code stands, 'A' *is* removed, which is almost certainly correct. This behaviour should
-%% always happen, but may not. (ie, the test needs expanding)
-dead_node_update_test() ->
-    {ok, A} = update({add, 'A'}, a, new()),
-    {ok, B} = update({add, 'B'}, b, A),
-    BCtx = precondition_context(B),
-    {ok, A2} = update({remove, 'A'}, a, A, BCtx),
-    ?assertEqual([], value(A2)).
-
-%% Batching should not re-order ops
-batch_order_test() ->
-    {ok, Set} = update({add_all, [<<"bar">>, <<"baz">>]}, a, new()),
-    Context  = precondition_context(Set),
-    {ok, Set2} = update({update, [{remove, <<"baz">>}, {add, <<"baz">>}]}, a, Set, Context),
-    ?assertEqual([<<"bar">>, <<"baz">>], value(Set2)),
-    {ok, Set3} = update({update, [{remove, <<"baz">>}, {add, <<"baz">>}]}, a, Set),
-    ?assertEqual([<<"bar">>, <<"baz">>], value(Set3)),
-    {ok, Set4} = update({remove, <<"baz">>}, a, Set),
-    {ok, Set5} = update({add, <<"baz">>}, a, Set4),
-    ?assertEqual([<<"bar">>, <<"baz">>], value(Set5)).
-
-*/
+    // port from riak_dt
+    // A test I thought up
+    // - existing replica of ['A'] at a and b,
+    // - add ['B'] at b, but not communicated to any other nodes, context returned to client
+    // - b goes down forever
+    // - remove ['A'] at a, using the context the client got from b
+    // - will that remove happen?
+    //   case for shouldn't: the context at b will always be bigger than that at a
+    //   case for should: we have the information in dots that may allow us to realise it can be removed
+    //     without us caring.
+    //
+    // as the code stands, 'A' *is* removed, which is almost certainly correct. This behaviour should
+    // always happen, but may not. (ie, the test needs expanding)
+    #[test]
+    fn test_dead_node_update() {
+        let mut a = Orswot::new();
+        a.add("A", 1);
+        let mut b = a.clone();
+        b.add("B", 2);
+        let bctx = b.precondition_context();
+        a.remove_with_context("A", &bctx);
+        assert!(a.value().is_empty());
+    }
 }
