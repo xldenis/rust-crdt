@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::VClock;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
@@ -161,15 +161,137 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
 
 #[cfg(test)]
 mod tests {
-    extern crate quickcheck;
-    extern crate rand;
+    use std::collections::BTreeSet;
 
-    use self::quickcheck::{Arbitrary, Gen, Testable, QuickCheck, StdGen};
-    use self::rand::Rng;
+    use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
+    use rand::{self, Rng};
 
     use super::*;
+    use ::VClock;
+
+    const ACTOR_MAX: u16 = 11;
 
     // TODO(tyler) perform quickchecking a la https://github.com/basho/riak_dt/blob/develop/src/riak_dt_orswot.erl#L625
+    #[derive(Debug, Clone)]
+    enum Op {
+        Add {
+            member: u16,
+            dest: u16,
+            actor: u16,
+        },
+        Remove {
+            member: u16,
+            dest: u16,
+            ctx: Option<VClock<u16>>,
+        }
+    }
+
+    impl Arbitrary for Op {
+        fn arbitrary<G: Gen>(g: &mut G) -> Op {
+            if g.gen_weighted_bool(2) {
+                Op::Add {
+                    member: g.gen_range(0, ACTOR_MAX),
+                    dest: g.gen_range(0, ACTOR_MAX),
+                    actor: g.gen_range(0, ACTOR_MAX),
+                }
+            } else {
+                let ctx = if g.gen_weighted_bool(4) {
+                    Some(VClock::arbitrary(g))
+                } else {
+                    None
+                };
+
+                Op::Remove {
+                    member: g.gen_range(0, ACTOR_MAX),
+                    dest: g.gen_range(0, ACTOR_MAX),
+                    ctx: ctx,
+                }
+            }
+        }
+
+        fn shrink(&self) -> Box<Iterator<Item=Op>> {
+            match self {
+                &Op::Remove{ctx: Some(ref ctx), member, dest} => {
+                    Box::new(ctx.shrink()
+                                .map(move |c|
+                                     Op::Remove{
+                                         ctx: Some(c),
+                                         member: member,
+                                         dest: dest,
+                                     }))
+                },
+                _ => Box::new(vec![].into_iter())
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct OpVec {
+        ops: Vec<Op>,
+    }
+
+    impl Arbitrary for OpVec {
+        fn arbitrary<G: Gen>(g: &mut G) -> OpVec {
+            let mut ops = vec![];
+            for _ in 0..g.gen_range(1, 100) {
+                ops.push(Op::arbitrary(g));
+            }
+            OpVec {
+                ops: ops,
+            }
+        }
+
+        fn shrink(&self) -> Box<Iterator<Item=OpVec>> {
+            let mut smaller = vec![];
+            for i in 0..self.ops.len() {
+                let mut clone = self.clone();
+                clone.ops.remove(i);
+                smaller.push(clone);
+            }
+
+            Box::new(smaller.into_iter())
+        }
+    }
+
+    #[test]
+    fn qc_merge_converges() {
+        fn p(ops: OpVec) -> bool {
+            // Different interleavings of ops applied to different
+            // orswots should all converge when merged. Apply the
+            // ops to increasing numbers of witnessing orswots,
+            // then merge them together and make sure they have
+            // all converged.
+            let mut results = BTreeSet::new();
+            for i in 1..ACTOR_MAX {
+                let mut witnesses: Vec<Orswot<u16, u16>> = (0..i).map(|_| Orswot::new()).collect();
+                for op in ops.ops.iter() {
+                    match op {
+                        &Op::Add{member, dest, actor} => {
+                            witnesses[(dest % i) as usize].add(member, actor % i);
+                        },
+                        &Op::Remove{ctx: None, member, dest} => {
+                            witnesses[(dest % i) as usize].remove(member);
+                        },
+                        &Op::Remove{ctx: Some(ref ctx), member, dest} => {
+                            witnesses[(dest % i) as usize].remove_with_context(member, ctx);
+                        }
+                    }
+                }
+                let mut merged = Orswot::new();
+                for witness in witnesses.into_iter() {
+                    merged.merge(witness.clone());
+                }
+                results.insert(merged.value());
+            }
+            results.len() == 1
+        }
+        QuickCheck::new()
+                   .gen(StdGen::new(rand::thread_rng(), 1))
+                   .tests(1_000)
+                   .max_tests(10_000)
+                   .quickcheck(p as fn(OpVec) -> bool);
+    }
+
     // port from riak_dt
     #[test]
     fn test_disjoint_merge() {
