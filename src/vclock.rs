@@ -19,7 +19,7 @@ trait AddableU64 {
     fn add_u64(&mut self, other: u64) -> Self;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, RustcEncodable, RustcDecodable)]
+#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
 pub struct VClock<A: Ord + Clone> {
     dots: BTreeMap<A, Counter>
 }
@@ -106,6 +106,7 @@ impl<A: Ord + Clone> VClock<A> {
     /// assert_eq!(a, c);
     /// ```
     ///
+    #[allow(unused_must_use)]
     pub fn merge(&mut self, other: VClock<A>) {
         for (actor, counter) in other.dots.into_iter() {
             self.witness(actor, counter);

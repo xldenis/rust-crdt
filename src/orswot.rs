@@ -1,4 +1,5 @@
-//! The `orswot` crate provides an implementation of the addition-biased OR-Set without tombstones (ORSWOT).
+//! The `orswot` crate provides an implementation of the addition-biased OR-Set
+//! without tombstones (ORSWOT).  Ported directly from riak_dt.
 //!
 //! # Examples
 //!
@@ -7,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::VClock;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, RustcEncodable, RustcDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
 pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
@@ -179,7 +180,7 @@ mod tests {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
         a.add("Z", "A");
         // Replicate it to C so A has 'Z'->{e, 1}
-        let mut c = a.clone();
+        let c = a.clone();
         a.remove("Z");
         b.add("Z", "B");
         // Replicate B to A, so now A has a Z, the one with a Dot of
@@ -202,7 +203,7 @@ mod tests {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
         a.add("Z", 1);
         b.add("Z", 2);
-        let mut c = a.clone();
+        let c = a.clone();
         a.remove("Z");
         // replicate B to A, now A has B's 'Z'
         a.merge(b.clone());
