@@ -15,10 +15,10 @@ Afterwards, either check out the [riak dt](https://github.com/basho/riak_dt) sou
 - [x] Vector Clock
 - [x] ORSWOT
 - [x] LWW Register
+- [x] G-Counter
 - [ ] Map
 - [ ] G-Set
 - [ ] OR-Set
-- [ ] G-Counter
 - [ ] PN-Counter
 - [ ] EM-Counter
 
