@@ -2,7 +2,7 @@
 Serializable practical CRDT's ported from riak_dt.
 
 
-(documentation)[http://spacejam.github.io/docs/crdts/crdts/]
+[documentation](http://spacejam.github.io/docs/crdts/crdts/)
 
 
 If you want to learn about how CRDTs work, I suggest starting with the readme from [aphyr's meangirls](https://github.com/aphyr/meangirls) repo.
