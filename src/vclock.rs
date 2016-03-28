@@ -34,7 +34,8 @@ trait AddableU64 {
 /// isolation, and need to be resolved externally).
 #[derive(Debug, Clone, Ord, PartialEq, Eq, Hash)]
 pub struct VClock<A: Ord + Clone> {
-    dots: BTreeMap<A, Counter>
+    /// dots is the mapping from actors to their associated counters
+    pub dots: BTreeMap<A, Counter>
 }
 
 impl<A: Ord + Clone> PartialOrd for VClock<A> {
