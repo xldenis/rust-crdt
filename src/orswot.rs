@@ -291,7 +291,7 @@ mod tests {
         results.len() == 1
     }
 
-    //#[test]
+    #[test]
     fn qc_merge_converges() {
         QuickCheck::new()
                    .gen(StdGen::new(rand::thread_rng(), 1))
@@ -300,6 +300,10 @@ mod tests {
                    .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
     }
 
+    /// When two orswots have identical clocks, but different elements,
+    /// any non-common elements will be dropped.  This highlights the
+    /// proper usage of orswots: don't use the same witness from different
+    /// copies of the orswot, or elements will be deleted upon merge.
     #[test]
     fn weird_highlight_1() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
@@ -309,8 +313,20 @@ mod tests {
         assert!(a.value().is_empty());
     }
 
+    /// When performing a remove without providing a context, the
+    /// removal will be ignored if the element is not present in
+    /// the local set. This highlights the need to provide a
+    /// corresponding context to any removal operation that
+    /// may end up on a replica that does not contain the
+    /// element.
     #[test]
-    fn weird_highlight_2() { }
+    fn weird_highlight_2() {
+        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        a.add(1, 1);
+        b.remove(1);
+        a.merge(b);
+        assert_eq!(a.value(), vec![1]);
+    }
 
     // a bug found with rust quickcheck where deferred removals
     // were not properly preserved across merges.
