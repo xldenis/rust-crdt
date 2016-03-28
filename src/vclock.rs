@@ -16,12 +16,22 @@ use std::collections::BTreeMap;
 use quickcheck::{Arbitrary, Gen};
 use rand::Rng;
 
+/// A counter is used to track causality at a particular actor.
 pub type Counter = u64;
 
 trait AddableU64 {
     fn add_u64(&mut self, other: u64) -> Self;
 }
 
+/// A `VClock` is a standard vector clock.
+/// It contains a set of "actors" and associated counters.
+/// When a particular actor witnesses a mutation, their associated
+/// counter in a `VClock` is incremented. `VClock` is typically used
+/// as metadata for associated application data, rather than as the
+/// container for application data. `VClock` just tracks causality.
+/// It can tell you if something causally descends something else,
+/// or if different replicas are "concurrent" (were mutated in
+/// isolation, and need to be resolved externally).
 #[derive(Debug, Clone, Ord, PartialEq, Eq, Hash)]
 pub struct VClock<A: Ord + Clone> {
     dots: BTreeMap<A, Counter>
@@ -42,6 +52,7 @@ impl<A: Ord + Clone> PartialOrd for VClock<A> {
 }
 
 impl<A: Ord + Clone> VClock<A> {
+    /// Returns a new `VClock` instance.
     pub fn new() -> VClock<A> {
         VClock {
             dots: BTreeMap::new()
@@ -146,6 +157,7 @@ impl<A: Ord + Clone> VClock<A> {
         self.dots.get(actor).map(|counter| *counter)
     }
 
+    /// Returns `true` if this vector clock contains nothing.
     pub fn is_empty(&self) -> bool {
         self.dots.is_empty()
     }
@@ -193,6 +205,8 @@ impl<A: Ord + Clone> VClock<A> {
         }
     }
 
+    /// Returns the common elements (same actor and counter)
+    /// for two `VClock` instances.
     pub fn intersection(&self, other: VClock<A>) -> VClock<A> {
         let mut dots = BTreeMap::new();
         for (actor, counter) in self.dots.iter() {

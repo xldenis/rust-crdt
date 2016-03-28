@@ -1,10 +1,16 @@
+//! `crdts` is a library of thoroughly-tested, serializable CRDT's
+//! ported from the riak_dt library to rust.
 #![crate_type = "lib"]
+#![deny(missing_docs)]
 
 pub use vclock::VClock;
 pub use orswot::Orswot;
 
+/// `lwwreg` contains the last-write-wins register.
 pub mod lwwreg;
+/// `vclock` contains the vector clock.
 pub mod vclock;
+/// `orswot` contains the addition-biased or-set without tombstone.
 pub mod orswot;
 
 extern crate rustc_serialize;

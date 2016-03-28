@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::VClock;
 
+/// `Orswot` is an add-biased or-set without tombstones ported from
+/// the riak_dt CRDT library.
 #[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
     clock: VClock<Actor>,
@@ -16,6 +18,7 @@ pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
 }
 
 impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
+    /// Returns a new `Orswot` instance.
     pub fn new() -> Orswot<Member, Actor> {
         Orswot {
             clock: VClock::new(),
@@ -25,6 +28,18 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     }
 
     /// Add a single element.
+    ///
+    /// # Safety
+    /// `add` should never be passed identical `actor` arguments
+    /// for different replicas. This will result in data loss:
+    ///
+    /// ```
+    /// let (mut a, mut b) = (Orswot::new(), Orswot::new());
+    /// a.add(1, 1);
+    /// b.add(2, 1);
+    /// a.merge(b);
+    /// assert!(a.value().is_empty());
+    /// ```
     pub fn add(&mut self, member: Member, actor: Actor) {
         // TODO(tyler) is this safe?  riak_dt performs a similar increment,
         // but it doesn't seem to imply causality across divergent dots.
@@ -154,6 +169,7 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
         }
     }
 
+    /// Returns the current `VClock` associated with this `Orswot`.
     pub fn precondition_context(&self) -> VClock<Actor> {
         self.clock.clone()
     }
