@@ -164,7 +164,7 @@ impl<A: Ord + Clone> VClock<A> {
     }
 
     /// Return the dots that self dominates compared to another clock.
-    pub fn dominating_dots(&self, dots: BTreeMap<A, Counter>) -> BTreeMap<A, Counter> {
+    pub fn dominating_dots(&self, dots: &BTreeMap<A, Counter>) -> BTreeMap<A, Counter> {
         let mut ret = BTreeMap::new();
         for (actor, counter) in self.dots.iter() {
             let other = dots.get(actor).map(|c| *c).unwrap_or(0);
@@ -199,8 +199,8 @@ impl<A: Ord + Clone> VClock<A> {
     /// assert_eq!(dom.get(&"B"), Some(2));
     /// assert_eq!(dom.get(&"G"), Some(22));
     /// ```
-    pub fn dominating_vclock(&self, other: VClock<A>) -> VClock<A> {
-        let dots = self.dominating_dots(other.dots);
+    pub fn dominating_vclock(&self, other: &VClock<A>) -> VClock<A> {
+        let dots = self.dominating_dots(&other.dots);
         VClock {
             dots: dots
         }
