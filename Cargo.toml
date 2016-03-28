@@ -1,10 +1,12 @@
 [package]
 name = "crdts"
 description = "Practical serializable CRDTs (counters, LWW, ORSWOT) implemented in Rust"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Tyler Neely <t@jujit.su>"]
 license = "Apache-2.0"
 homepage = "https://github.com/spacejam/rust-crdt"
+repository = "https://github.com/spacejam/rust-crdt"
+documentation = "http://spacejam.github.io/docs/crdts/crdts/"
 keywords = ["crdt", "data-structures", "distributed-systems", "vector-clock", "orswot"]
 
 [[test]]
