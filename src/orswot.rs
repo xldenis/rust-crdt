@@ -110,7 +110,6 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
                 //  1. has witnessed it and dropped it
                 //  2. hasn't witnessed it
                 if clock.dominating_vclock(&other.clock).is_empty() {
-                    println!("dropping it");
                     // the other orswot has witnessed the entry's clock, and dropped this entry
                 } else {
                     // the other orswot has not witnessed this add, so add it
@@ -119,21 +118,26 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
             } else {
                 // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
                 // shouldn't drop it!
-                let common = clock.intersection(other.clone().clock);
+                let common = clock.intersection(&other.clock);
+                println!("common sz: {}", common.dots.len());
                 let luniq = clock.dominating_vclock(&common);
+                println!("luniq sz: {}", luniq.dots.len());
                 let runiq = other.clock.dominating_vclock(&common);
+                println!("runiq sz: {}", runiq.dots.len());
                 let lkeep = luniq.dominating_vclock(&other.clock);
+                println!("lkeep sz: {}", lkeep.dots.len());
                 let rkeep = runiq.dominating_vclock(&self.clock);
+                println!("rkeep sz: {}", rkeep.dots.len());
                 // Perfectly possible that an item in both sets should be dropped
                 let mut common = common;
                 common.merge(lkeep);
                 common.merge(rkeep);
-                if !common.is_empty() {
+                if common.is_empty() {
                     println!("dropping it 2");
                     // we should not drop, as there are common clocks
                 } else {
                     println!("keeping it?");
-                    keep.insert(entry.clone(), clock);
+                    keep.insert(entry.clone(), common);
                 }
                 // don't want to consider this again below
                 other.entries.remove(&entry).unwrap();

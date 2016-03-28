@@ -208,7 +208,7 @@ impl<A: Ord + Clone> VClock<A> {
 
     /// Returns the common elements (same actor and counter)
     /// for two `VClock` instances.
-    pub fn intersection(&self, other: VClock<A>) -> VClock<A> {
+    pub fn intersection(&self, other: &VClock<A>) -> VClock<A> {
         let mut dots = BTreeMap::new();
         for (actor, counter) in self.dots.iter() {
             if let Some(other_counter) = other.dots.get(actor) {
