@@ -5,6 +5,7 @@
 
 pub use vclock::VClock;
 pub use orswot::Orswot;
+pub use lwwreg::LWWReg;
 
 /// `lwwreg` contains the last-write-wins register.
 pub mod lwwreg;
