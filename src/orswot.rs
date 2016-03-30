@@ -61,7 +61,7 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
 
     /// Remove a member without providing a witnessing context.
     /// Returns an existing context `VClock` if it was present.
-    pub fn remove(&mut self, member: Member) -> Option<VClock<Actor>> {
+    pub unsafe fn remove(&mut self, member: Member) -> Option<VClock<Actor>> {
         self.entries.remove(&member)
     }
 
@@ -83,7 +83,7 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     }
 
     /// Remove multiple members, without providing a witnessing context.
-    pub fn remove_all(&mut self, members: Vec<Member>) -> Vec<Option<VClock<Actor>>> {
+    pub unsafe fn remove_all(&mut self, members: Vec<Member>) -> Vec<Option<VClock<Actor>>> {
         members.into_iter().map(|member| self.remove(member)).collect()
     }
 
