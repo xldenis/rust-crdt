@@ -21,6 +21,7 @@ extern crate rustc_serialize;
 extern crate bincode;
 extern crate quickcheck;
 extern crate rand;
+#[macro_use] extern crate maplit;
 
 use bincode::SizeLimit;
 use bincode::rustc_serialize::{encode, decode, DecodingResult};

@@ -68,7 +68,7 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     /// Remove a member using a witnessing context.
     pub fn remove_with_context(&mut self, member: Member,
                                context: &VClock<Actor>) {
-        if *context > self.clock {
+        if !context.dominating_vclock(&self.clock).is_empty() {
             let mut deferred_drops = self.deferred.remove(context).unwrap_or(BTreeSet::new());
             deferred_drops.insert(member.clone());
             self.deferred.insert(context.clone(), deferred_drops);
@@ -380,9 +380,25 @@ mod tests {
 
     #[test]
     // a bug found with rust quickcheck where deferred operations
-    // are not always applied.
-    fn ensure_deferred_is_applied() {
-        // TODO
+    // are not carried over after a merge.
+    // symptoms:
+    //  if nothing is added, it works
+    //  if removed elem is added first, it only misses one
+    //  if non-related elem is added, it misses both
+    fn ensure_deferred_merges() {
+        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        let ctx1 = VClock { dots: btreemap!{5 => 4} };
+        let ctx2 = VClock { dots: btreemap!{4 => 4} };
+        b.add("element 1".to_string(), 5);
+        b.remove_with_context("element 1".to_string(), &ctx1);
+        a.add("element 4".to_string(), 6);
+        b.remove_with_context("element 9".to_string(), &ctx2);
+
+        let mut merged = Orswot::new();
+        merged.merge(a);
+        merged.merge(b);
+        merged.merge(Orswot::new());
+        assert_eq!(merged.deferred.len(), 2);
     }
 
     // a bug found with rust quickcheck where deferred removals
