@@ -295,7 +295,7 @@ mod tests {
             for op in ops.ops.iter() {
                 match op {
                     &Op::Add{member, actor} => {
-                        witnesses[(actor % i) as usize].add(member, actor % i);
+                        witnesses[(actor % i) as usize].add(member, actor);
                     },
                     &Op::Remove{ctx: None, member, actor} => {
                         witnesses[(actor % i) as usize].remove(member);
@@ -353,6 +353,13 @@ mod tests {
         b.remove(1);
         a.merge(b);
         assert_eq!(a.value(), vec![1]);
+    }
+
+    #[test]
+    // a bug found with rust quickcheck where deferred operations
+    // are not always applied.
+    fn ensure_deferred_is_applied() {
+        // TODO
     }
 
     // a bug found with rust quickcheck where deferred removals
