@@ -195,7 +195,7 @@ impl<A: Ord + Clone> VClock<A> {
     /// b.witness("E", 5);
     /// b.witness("F", 2);
     ///
-    /// let dom = a.dominating_vclock(b);
+    /// let dom = a.dominating_vclock(&b);
     /// assert_eq!(dom.get(&"B"), Some(2));
     /// assert_eq!(dom.get(&"G"), Some(22));
     /// ```

@@ -26,7 +26,8 @@ impl<T: PartialEq, A: Ord> LWWReg<T, A> {
     /// use crdts::LWWReg;
     /// let mut l1 = LWWReg { value: 1, dot: 2 };
     /// let l2 = LWWReg { value: 3, dot: 2 };
-    /// l1.merge(l2);
+    /// // panics
+    /// // l1.merge(l2);
     /// ```
     pub fn merge(&mut self, other: LWWReg<T, A>) {
         if other.dot > self.dot {

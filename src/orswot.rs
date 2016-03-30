@@ -34,6 +34,7 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
     /// for different replicas. This will result in data loss:
     ///
     /// ```
+    /// use crdts::Orswot;
     /// let (mut a, mut b) = (Orswot::new(), Orswot::new());
     /// a.add(1, 1);
     /// b.add(2, 1);
@@ -152,12 +153,16 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
             }
         }
 
+        println!("deferred 0");
         // merge deferred removals
-        for (clock, mut deferred) in self.deferred.iter_mut() {
-            let other_deferred = other.deferred.remove(clock).unwrap_or(BTreeSet::new());
-            for e in other_deferred.into_iter() {
-                deferred.insert(e);
+        for (clock, deferred) in other.deferred.iter() {
+            println!("deferred 1");
+            let mut our_deferred = self.deferred.remove(&clock).unwrap_or(BTreeSet::new());
+            for e in deferred.iter() {
+                println!("deferred 2");
+                our_deferred.insert(e.clone());
             }
+            self.deferred.insert(clock.clone(), our_deferred);
         }
 
         self.entries = keep;
@@ -284,8 +289,6 @@ mod tests {
         // then merge them together and make sure they have
         // all converged.
         let mut results = BTreeSet::new();
-        // HACK 2.. below prevents issues with divergent behavior with a single
-        // witness vs multiple. reconsider this choice.
         for i in 2..ACTOR_MAX {
             let mut witnesses: Vec<Orswot<u16, u16>> = (0..i).map(|_| Orswot::new()).collect();
             for op in ops.ops.iter() {
@@ -456,7 +459,7 @@ mod tests {
         // Replicate C to B, now B has A's old 'Z'
         b.merge(c);
         assert_eq!(b.value(), vec!["Z".to_string()]);
-        // Merge everytyhing, without the fix You end up with 'Z' present,
+        // Merge everything, without the fix You end up with 'Z' present,
         // with no dots
         a.merge(b);
         assert!(a.value().is_empty());
