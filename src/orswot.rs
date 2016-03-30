@@ -310,6 +310,13 @@ mod tests {
             for witness in witnesses.into_iter() {
                 merged.merge(witness.clone());
             }
+
+            // defer_plunger is used to merge deferred elements from the above.
+            // to illustrate why this is needed, check out `weird_highlight_3`
+            // below.
+            let defer_plunger = Orswot::new();
+            merged.merge(defer_plunger);
+
             println!("merged: {:?}", merged);
             results.insert(merged.value());
         }
@@ -353,6 +360,22 @@ mod tests {
         b.remove(1);
         a.merge(b);
         assert_eq!(a.value(), vec![1]);
+    }
+
+    /// Defers are only checked at merge time.
+    #[test]
+    fn weird_highlight_3() {
+        let (mut a, b) = (Orswot::new(), Orswot::new());
+        let mut ctx = VClock::new();
+        ctx.increment("actor".to_string());
+        ctx.increment("actor".to_string());
+        ctx.increment("actor".to_string());
+
+        a.remove_with_context("element".to_string(), &ctx);
+        a.add("element".to_string(), "actor".to_string());
+        assert_eq!(a.value(), vec!["element".to_string()]);
+        a.merge(b);
+        assert!(a.value().is_empty());
     }
 
     #[test]
