@@ -1,5 +1,7 @@
 use std::cmp::{Ordering};
 
+use rustc_serialize::{Encodable, Decodable};
+
 use super::VClock;
 
 /// `GCounter` is a grow-only witnessed counter.
@@ -9,39 +11,39 @@ use super::VClock;
 /// ```
 /// use crdts::GCounter;
 /// let (mut a, mut b) = (GCounter::new(), GCounter::new());
-/// a.increment("A");
-/// b.increment("B");
+/// a.increment("A".to_string());
+/// b.increment("B".to_string());
 /// assert_eq!(a.value(), b.value());
 /// assert!(a == b);
-/// a.increment("A");
+/// a.increment("A".to_string());
 /// assert!(a > b);
 /// ```
-#[derive(Debug, Eq, Clone, Hash)]
-pub struct GCounter<A: Ord + Clone> {
+#[derive(Debug, Eq, Clone, Hash, RustcEncodable, RustcDecodable)]
+pub struct GCounter<A: Ord + Clone + Encodable + Decodable> {
     inner: VClock<A>
 }
 
-impl<A: Ord + Clone> Ord for GCounter<A> {
+impl<A: Ord + Clone + Encodable + Decodable> Ord for GCounter<A> {
     fn cmp(&self, other: &GCounter<A>) -> Ordering {
         let (c, oc) = (self.value(), other.value());
         c.cmp(&oc)
     }
 }
 
-impl<A: Ord + Clone> PartialOrd for GCounter<A> {
+impl<A: Ord + Clone + Encodable + Decodable> PartialOrd for GCounter<A> {
     fn partial_cmp(&self, other: &GCounter<A>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord + Clone> PartialEq for GCounter<A> {
+impl<A: Ord + Clone + Encodable + Decodable> PartialEq for GCounter<A> {
     fn eq(&self, other: &GCounter<A>) -> bool {
         let (c, oc) = (self.value(), other.value());
         c == oc
     }
 }
 
-impl<A: Ord + Clone> GCounter<A> {
+impl<A: Ord + Clone + Encodable + Decodable> GCounter<A> {
     /// Produces a new `GCounter`.
     pub fn new() -> GCounter<A> {
         GCounter {
@@ -67,11 +69,11 @@ mod tests {
     #[test]
     fn test_basic() {
         let (mut a, mut b) = (GCounter::new(), GCounter::new());
-        a.increment("A");
-        b.increment("B");
+        a.increment("A".to_string());
+        b.increment("B".to_string());
         assert_eq!(a.value(), b.value());
         assert!(a == b);
-        a.increment("A");
+        a.increment("A".to_string());
         assert!(a > b);
     }
 }

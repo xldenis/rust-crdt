@@ -5,8 +5,8 @@
 //! ```
 //! use crdts::VClock;
 //! let (mut a, mut b) = (VClock::new(), VClock::new());
-//! a.witness("A", 2);
-//! b.witness("A", 1);
+//! a.witness("A".to_string(), 2);
+//! b.witness("A".to_string(), 1);
 //! assert!(a > b);
 //! ```
 
@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 
 use quickcheck::{Arbitrary, Gen};
 use rand::Rng;
+use rustc_serialize::{Encodable, Decodable};
 
 /// A counter is used to track causality at a particular actor.
 pub type Counter = u64;
@@ -32,13 +33,13 @@ trait AddableU64 {
 /// It can tell you if something causally descends something else,
 /// or if different replicas are "concurrent" (were mutated in
 /// isolation, and need to be resolved externally).
-#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash)]
-pub struct VClock<A: Ord + Clone> {
+#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
+pub struct VClock<A: Ord + Clone + Encodable + Decodable> {
     /// dots is the mapping from actors to their associated counters
     pub dots: BTreeMap<A, Counter>
 }
 
-impl<A: Ord + Clone> PartialOrd for VClock<A> {
+impl<A: Ord + Clone + Encodable + Decodable> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
@@ -52,7 +53,7 @@ impl<A: Ord + Clone> PartialOrd for VClock<A> {
     }
 }
 
-impl<A: Ord + Clone> VClock<A> {
+impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
     /// Returns a new `VClock` instance.
     pub fn new() -> VClock<A> {
         VClock {
@@ -68,9 +69,9 @@ impl<A: Ord + Clone> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A", 2);
-    /// a.witness("A", 0); // ignored because 2 dominates 0
-    /// b.witness("A", 1);
+    /// a.witness("A".to_string(), 2);
+    /// a.witness("A".to_string(), 0); // ignored because 2 dominates 0
+    /// b.witness("A".to_string(), 1);
     /// assert!(a > b);
     /// ```
     ///
@@ -90,10 +91,10 @@ impl<A: Ord + Clone> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.increment("A");
-    /// a.increment("A");
-    /// a.witness("A", 0); // ignored because 2 dominates 0
-    /// b.increment("A");
+    /// a.increment("A".to_string());
+    /// a.increment("A".to_string());
+    /// a.witness("A".to_string(), 0); // ignored because 2 dominates 0
+    /// b.increment("A".to_string());
     /// assert!(a > b);
     /// ```
     ///
@@ -113,10 +114,10 @@ impl<A: Ord + Clone> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b, mut c) = (VClock::new(), VClock::new(), VClock::new());
-    /// a.increment("A");
-    /// b.increment("B");
-    /// c.increment("A");
-    /// c.increment("B");
+    /// a.increment("A".to_string());
+    /// b.increment("B".to_string());
+    /// c.increment("A".to_string());
+    /// c.increment("B".to_string());
     /// a.merge(b);
     /// assert_eq!(a, c);
     /// ```
@@ -145,8 +146,8 @@ impl<A: Ord + Clone> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.increment("A");
-    /// b.increment("B");
+    /// a.increment("A".to_string());
+    /// b.increment("B".to_string());
     /// assert!(a.concurrent(&b));
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
@@ -183,21 +184,21 @@ impl<A: Ord + Clone> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A", 3);
-    /// a.witness("B", 2);
-    /// a.witness("D", 14);
-    /// a.witness("G", 22);
+    /// a.witness("A".to_string(), 3);
+    /// a.witness("B".to_string(), 2);
+    /// a.witness("D".to_string(), 14);
+    /// a.witness("G".to_string(), 22);
     ///
-    /// b.witness("A", 4);
-    /// b.witness("B", 1);
-    /// b.witness("C", 1);
-    /// b.witness("D", 14);
-    /// b.witness("E", 5);
-    /// b.witness("F", 2);
+    /// b.witness("A".to_string(), 4);
+    /// b.witness("B".to_string(), 1);
+    /// b.witness("C".to_string(), 1);
+    /// b.witness("D".to_string(), 14);
+    /// b.witness("E".to_string(), 5);
+    /// b.witness("F".to_string(), 2);
     ///
     /// let dom = a.dominating_vclock(&b);
-    /// assert_eq!(dom.get(&"B"), Some(2));
-    /// assert_eq!(dom.get(&"G"), Some(22));
+    /// assert_eq!(dom.get(&"B".to_string()), Some(2));
+    /// assert_eq!(dom.get(&"G".to_string()), Some(22));
     /// ```
     pub fn dominating_vclock(&self, other: &VClock<A>) -> VClock<A> {
         let dots = self.dominating_dots(&other.dots);
@@ -312,10 +313,10 @@ mod tests {
         assert_eq!(VClock::<i8>::new(), VClock::new());
 
         let (mut a, mut b) = (VClock::new(), VClock::new());
-        a.witness("A", 1).unwrap();
-        a.witness("A", 2).unwrap();
-        assert!(a.witness("A", 0).is_err());
-        b.witness("A", 1).unwrap();
+        a.witness("A".to_string(), 1).unwrap();
+        a.witness("A".to_string(), 2).unwrap();
+        assert!(a.witness("A".to_string(), 0).is_err());
+        b.witness("A".to_string(), 1).unwrap();
 
         // a {A:2}
         // b {A:1}
@@ -324,7 +325,7 @@ mod tests {
         assert!(b < a);
         assert!(a != b);
 
-        b.witness("A", 3).unwrap();
+        b.witness("A".to_string(), 3).unwrap();
         // a {A:2}
         // b {A:3}
         // expect: b dominates
@@ -332,7 +333,7 @@ mod tests {
         assert!(a < b);
         assert!(a != b);
 
-        a.witness("B", 1).unwrap();
+        a.witness("B".to_string(), 1).unwrap();
         // a {A:2, B:1}
         // b {A:3}
         // expect: concurrent
@@ -340,7 +341,7 @@ mod tests {
         assert!(!(a > b));
         assert!(!(b > a));
 
-        a.witness("A", 3).unwrap();
+        a.witness("A".to_string(), 3).unwrap();
         // a {A:3, B:1}
         // b {A:3}
         // expect: a dominates
@@ -348,7 +349,7 @@ mod tests {
         assert!(b < a);
         assert!(a != b);
 
-        b.witness("B", 2).unwrap();
+        b.witness("B".to_string(), 2).unwrap();
         // a {A:3, B:1}
         // b {A:3, B:2}
         // expect: b dominates
@@ -356,7 +357,7 @@ mod tests {
         assert!(a < b);
         assert!(a != b);
 
-        a.witness("B", 2).unwrap();
+        a.witness("B".to_string(), 2).unwrap();
         // a {A:3, B:2}
         // b {A:3, B:2}
         // expect: equal

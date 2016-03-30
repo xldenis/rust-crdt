@@ -6,18 +6,22 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use rustc_serialize::{Encodable, Decodable};
+
 use super::VClock;
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
-#[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
-pub struct Orswot<Member: Ord + Clone, Actor: Ord + Clone> {
+#[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
+pub struct Orswot<Member: Ord + Clone + Encodable + Decodable,
+                  Actor: Ord + Clone + Encodable + Decodable> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
     deferred: BTreeMap<VClock<Actor>, BTreeSet<Member>>,
 }
 
-impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
+impl<Member: Ord + Clone + Encodable + Decodable,
+     Actor: Ord + Clone + Encodable + Decodable> Orswot<Member, Actor> {
     /// Returns a new `Orswot` instance.
     pub fn new() -> Orswot<Member, Actor> {
         Orswot {
@@ -307,7 +311,7 @@ mod tests {
                         witnesses[(actor % i) as usize].add(member, actor);
                     },
                     &Op::Remove{ctx: None, member, actor} => {
-                        witnesses[(actor % i) as usize].remove(member);
+                        unsafe { witnesses[(actor % i) as usize].remove(member); }
                     },
                     &Op::Remove{ctx: Some(ref ctx), member, actor} => {
                         witnesses[(actor % i) as usize].remove_with_context(member, ctx);
@@ -369,7 +373,7 @@ mod tests {
     fn weird_highlight_2() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
         a.add(1, 1);
-        b.remove(1);
+        unsafe { b.remove(1); }
         a.merge(b);
         assert_eq!(a.value(), vec![1]);
     }
@@ -484,7 +488,7 @@ mod tests {
         assert_eq!(c.value(), vec!["bar".to_string()]);
         c.merge(b);
         assert_eq!(c.value(), vec!["bar".to_string(), "baz".to_string()]);
-        a.remove("bar".to_string());
+        unsafe { a.remove("bar".to_string()); }
         let mut d = a.clone();
         d.merge(c);
         assert_eq!(d.value(), vec!["baz".to_string()]);
@@ -499,12 +503,12 @@ mod tests {
         a.add("Z".to_string(), "A".to_string());
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
-        a.remove("Z".to_string());
+        unsafe { a.remove("Z".to_string()); }
         b.add("Z".to_string(), "B".to_string());
         // Replicate B to A, so now A has a Z, the one with a Dot of
         // {b,1} and clock of [{a, 1}, {b, 1}]
         a.merge(b.clone());
-        b.remove("Z".to_string());
+        unsafe { b.remove("Z".to_string()); }
         // Both C and A have a 'Z', but when they merge, there should be
         // no 'Z' as C's has been removed by A and A's has been removed by
         // C.
@@ -522,7 +526,7 @@ mod tests {
         a.add("Z".to_string(), 1);
         b.add("Z".to_string(), 2);
         let c = a.clone();
-        a.remove("Z".to_string());
+        unsafe { a.remove("Z".to_string()); }
 
         // replicate B to A, now A has B's 'Z'
         a.merge(b.clone());
@@ -533,7 +537,7 @@ mod tests {
         expected_clock.increment(2);
         assert_eq!(a.clock, expected_clock);
 
-        b.remove("Z".to_string());
+        unsafe { b.remove("Z".to_string()); }
         assert!(b.value().is_empty());
 
         // Replicate C to B, now B has A's old 'Z'
