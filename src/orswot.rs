@@ -256,8 +256,24 @@ mod tests {
     impl Arbitrary for OpVec {
         fn arbitrary<G: Gen>(g: &mut G) -> OpVec {
             let mut ops = vec![];
+            let mut seen_adds = BTreeSet::new();
             for _ in 0..g.gen_range(1, 100) {
-                ops.push(Op::arbitrary(g));
+                let op = Op::arbitrary(g);
+                // here we make sure an element is only added
+                // once, to force determinism in the face of
+                // behavior shown in `weird_highlight_4` below
+                match op.clone() {
+                    Op::Add{member, ..} => {
+                        if !seen_adds.contains(&member) {
+                            seen_adds.insert(member.clone());
+                            ops.push(op);
+                        }
+                    },
+                    _ => {
+                        ops.push(op);
+                    }
+                }
+
             }
             OpVec {
                 ops: ops,
@@ -298,9 +314,8 @@ mod tests {
                     }
                 }
             }
-            println!("witnesses: {:?}", witnesses);
             let mut merged = Orswot::new();
-            for witness in witnesses.into_iter() {
+            for witness in witnesses.iter() {
                 merged.merge(witness.clone());
             }
 
@@ -310,16 +325,19 @@ mod tests {
             let defer_plunger = Orswot::new();
             merged.merge(defer_plunger);
 
-            println!("merged: {:?}", merged);
             results.insert(merged.value());
+            if results.len() > 1 {
+                println!("opvec: {:?}", ops);
+                println!("results: {:?}", results);
+                println!("witnesses: {:?}", &witnesses);
+                println!("merged: {:?}", merged);
+            }
         }
-        println!("opvec: {:?}", ops);
-        println!("results: {:?}", results);
         results.len() == 1
     }
 
     #[test]
-    #[ignore]
+    //#[ignore]
     fn qc_merge_converges() {
         QuickCheck::new()
                    .gen(StdGen::new(rand::thread_rng(), 1))
