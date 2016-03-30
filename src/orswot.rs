@@ -103,49 +103,53 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
 
     /// Merge combines another `Orswot` with this one.
     ///
-    pub fn merge(&mut self, mut other: Orswot<Member, Actor>) {
+    pub fn merge(&mut self, other: Orswot<Member, Actor>) {
+        let mut other_remaining = other.entries.clone();
         let mut keep = BTreeMap::new();
         for (entry, clock) in self.entries.clone().into_iter() {
-            if !other.entries.contains_key(&entry) {
-                // other doesn't contain this entry because it:
-                //  1. has witnessed it and dropped it
-                //  2. hasn't witnessed it
-                if clock.dominating_vclock(&other.clock).is_empty() {
-                    // the other orswot has witnessed the entry's clock, and dropped this entry
-                } else {
-                    // the other orswot has not witnessed this add, so add it
-                    keep.insert(entry, clock);
+            match other.entries.get(&entry) {
+                None => {
+                    // other doesn't contain this entry because it:
+                    //  1. has witnessed it and dropped it
+                    //  2. hasn't witnessed it
+                    if clock.dominating_vclock(&other.clock).is_empty() {
+                        // the other orswot has witnessed the entry's clock, and dropped this entry
+                    } else {
+                        // the other orswot has not witnessed this add, so add it
+                        keep.insert(entry, clock);
+                    }
+                },
+                Some(other_entry_clock) => {
+                    // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
+                    // shouldn't drop it!
+                    let common = clock.intersection(&other_entry_clock);
+                    println!("common sz: {}", common.dots.len());
+                    let luniq = clock.dominating_vclock(&common);
+                    println!("luniq sz: {}", luniq.dots.len());
+                    let runiq = other_entry_clock.dominating_vclock(&common);
+                    println!("runiq sz: {}", runiq.dots.len());
+                    let lkeep = luniq.dominating_vclock(&other.clock);
+                    println!("lkeep sz: {}", lkeep.dots.len());
+                    let rkeep = runiq.dominating_vclock(&self.clock);
+                    println!("rkeep sz: {}", rkeep.dots.len());
+                    // Perfectly possible that an item in both sets should be dropped
+                    let mut common = common;
+                    common.merge(lkeep);
+                    common.merge(rkeep);
+                    if common.is_empty() {
+                        println!("dropping it 2");
+                        // we should not drop, as there are common clocks
+                    } else {
+                        println!("keeping it?");
+                        keep.insert(entry.clone(), common);
+                    }
+                    // don't want to consider this again below
+                    other_remaining.remove(&entry).unwrap();
                 }
-            } else {
-                // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
-                // shouldn't drop it!
-                let common = clock.intersection(&other.clock);
-                println!("common sz: {}", common.dots.len());
-                let luniq = clock.dominating_vclock(&common);
-                println!("luniq sz: {}", luniq.dots.len());
-                let runiq = other.clock.dominating_vclock(&common);
-                println!("runiq sz: {}", runiq.dots.len());
-                let lkeep = luniq.dominating_vclock(&other.clock);
-                println!("lkeep sz: {}", lkeep.dots.len());
-                let rkeep = runiq.dominating_vclock(&self.clock);
-                println!("rkeep sz: {}", rkeep.dots.len());
-                // Perfectly possible that an item in both sets should be dropped
-                let mut common = common;
-                common.merge(lkeep);
-                common.merge(rkeep);
-                if common.is_empty() {
-                    println!("dropping it 2");
-                    // we should not drop, as there are common clocks
-                } else {
-                    println!("keeping it?");
-                    keep.insert(entry.clone(), common);
-                }
-                // don't want to consider this again below
-                other.entries.remove(&entry).unwrap();
             }
         }
 
-        for (entry, clock) in other.entries.clone().into_iter() {
+        for (entry, clock) in other_remaining.into_iter() {
             let dom_clock = clock.dominating_vclock(&self.clock);
             if !dom_clock.is_empty() {
                 // other has witnessed a novel addition, so add it
@@ -153,13 +157,10 @@ impl<Member: Ord + Clone, Actor: Ord + Clone> Orswot<Member, Actor> {
             }
         }
 
-        println!("deferred 0");
         // merge deferred removals
         for (clock, deferred) in other.deferred.iter() {
-            println!("deferred 1");
             let mut our_deferred = self.deferred.remove(&clock).unwrap_or(BTreeSet::new());
             for e in deferred.iter() {
-                println!("deferred 2");
                 our_deferred.insert(e.clone());
             }
             self.deferred.insert(clock.clone(), our_deferred);
@@ -318,7 +319,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn qc_merge_converges() {
         QuickCheck::new()
                    .gen(StdGen::new(rand::thread_rng(), 1))
@@ -450,19 +450,55 @@ mod tests {
         a.add("Z".to_string(), 1);
         b.add("Z".to_string(), 2);
         let c = a.clone();
-        a.remove("Z".to_string());
+        let mut a2 = a.clone();
+        a2.remove("Z".to_string());
+
+        let mut a3 = a2.clone();
+        a3.merge(b.clone());
+        let mut expected_clock = VClock::new();
+        expected_clock.increment(1);
+        expected_clock.increment(2);
+        assert_eq!(a3.clock, expected_clock);
+
+        let mut b2 = b.clone();
+        b2.remove("Z".to_string());
+
+        let mut b3 = b2.clone();
+        b3.merge(c.clone());
+
+        println!("");
+        println!("a3[Z] clock: {:?}", a3.entries.get(&"Z".to_string()).unwrap());
+        println!("a3 clock: {:?}", a3.clock);
+        println!("b3[Z] clock: {:?}", b3.entries.get(&"Z".to_string()).unwrap());
+        println!("b3 clock: {:?}", b3.clock);
+        println!("c[Z] clock: {:?}", c.entries.get(&"Z".to_string()).unwrap());
+        println!("c clock: {:?}", c.clock);
+
+        let mut merged = b3.clone();
+        println!("ayo 0");
+        // PROBLEM: b has common element that it shouldn't
+        merged.merge(a3);
+        merged.merge(c);
+        println!("ayo 1");
+        println!("ayo 2");
+
+        /*
         // replicate B to A, now A has B's 'Z'
         a.merge(b.clone());
         assert_eq!(a.value(), vec!["Z".to_string()]);
         b.remove("Z".to_string());
         assert!(b.value().is_empty());
         // Replicate C to B, now B has A's old 'Z'
-        b.merge(c);
+        b.merge(c.clone());
         assert_eq!(b.value(), vec!["Z".to_string()]);
         // Merge everything, without the fix You end up with 'Z' present,
         // with no dots
+        println!("ok 1");
         a.merge(b);
-        assert!(a.value().is_empty());
+        println!("ok 2");
+        a.merge(c);
+        */
+        assert!(merged.value().is_empty());
     }
 
     // port from riak_dt
