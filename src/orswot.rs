@@ -12,7 +12,7 @@ use super::VClock;
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
-#[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
 pub struct Orswot<Member: Ord + Clone + Encodable + Decodable,
                   Actor: Ord + Clone + Encodable + Decodable> {
     clock: VClock<Actor>,
