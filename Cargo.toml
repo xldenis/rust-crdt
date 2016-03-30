@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage = "https://github.com/spacejam/rust-crdt"
 repository = "https://github.com/spacejam/rust-crdt"
 documentation = "http://spacejam.github.io/docs/crdts/crdts/"
-keywords = ["crdt", "data-structures", "distributed-systems", "vector-clock", "orswot", "riak"]
+keywords = ["crdt", "data-structures", "distributed-systems", "vector-clock", "riak"]
 
 [[test]]
 
