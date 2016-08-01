@@ -60,6 +60,24 @@ impl<A: Ord + Clone + Encodable + Decodable> GCounter<A> {
     pub fn value(&self) -> u64 {
         self.inner.dots.values().fold(0, |acc, count| acc + count)
     }
+
+    /// Merge another gcounter into this one, without
+    /// regard to dominance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use crdts::GCounter;
+    /// let (mut a, mut b, mut c) = (GCounter::new(), GCounter::new(), GCounter::new());
+    /// a.increment("A".to_string());
+    /// b.increment("B".to_string());
+    /// c.increment("A".to_string());
+    /// c.increment("B".to_string());
+    /// a.merge(b);
+    /// assert_eq!(a, c);
+    pub fn merge(&mut self, other: GCounter<A>) {
+        self.inner.merge(other.inner);
+    }
 }
 
 #[cfg(test)]
