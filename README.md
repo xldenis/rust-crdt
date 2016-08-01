@@ -16,7 +16,7 @@ Thoroughly tested serializable practical CRDT's ported from riak_dt.
 - [ ] Map
 - [ ] G-Set
 - [ ] OR-Set
-- [ ] PN-Counter
+- [x] PN-Counter
 - [ ] EM-Counter
 
 
