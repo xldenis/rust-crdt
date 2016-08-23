@@ -7,6 +7,7 @@ pub use vclock::VClock;
 pub use orswot::Orswot;
 pub use lwwreg::LWWReg;
 pub use gcounter::GCounter;
+pub use pncounter::PNCounter;
 
 /// `lwwreg` contains the last-write-wins register.
 pub mod lwwreg;
@@ -16,6 +17,8 @@ pub mod vclock;
 pub mod orswot;
 /// `gcounter` contains the grow-only counter
 pub mod gcounter;
+/// `pncounter` contains the positive-negative counter
+pub mod pncounter;
 
 extern crate rustc_serialize;
 extern crate bincode;
