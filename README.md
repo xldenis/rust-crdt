@@ -5,7 +5,7 @@
 Thoroughly tested serializable practical CRDT's ported from riak_dt.
 
 
-[documentation](http://spacejam.github.io/docs/crdts/crdts/)
+[documentation](https://docs.rs/crdts/1.2.11/crdts/)
 
 
 - [x] Vector Clock
