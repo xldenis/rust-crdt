@@ -10,12 +10,10 @@
 //! assert!(a > b);
 //! ```
 
-use std::cmp::{Ordering};
-use std::collections::BTreeMap;
+use super::*;
 
-use quickcheck::{Arbitrary, Gen};
-use rand::Rng;
-use rustc_serialize::{Encodable, Decodable};
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 /// A counter is used to track causality at a particular actor.
 pub type Counter = u64;
@@ -33,19 +31,26 @@ trait AddableU64 {
 /// It can tell you if something causally descends something else,
 /// or if different replicas are "concurrent" (were mutated in
 /// isolation, and need to be resolved externally).
-#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
-pub struct VClock<A: Ord + Clone + Encodable + Decodable> {
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct VClock<A: Ord + Clone + Serialize + DeserializeOwned> {
     /// dots is the mapping from actors to their associated counters
-    pub dots: BTreeMap<A, Counter>
+    pub dots: BTreeMap<A, Counter>,
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> PartialOrd for VClock<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
-        } else if other.dots.iter().all(|(w, c)| self.contains_descendent_element(w, c)) {
+        } else if other.dots.iter().all(|(w, c)| {
+            self.contains_descendent_element(w, c)
+        })
+        {
             Some(Ordering::Greater)
-        } else if self.dots.iter().all(|(w, c)| other.contains_descendent_element(w, c)) {
+        } else if self.dots.iter().all(|(w, c)| {
+            other.contains_descendent_element(w, c)
+        })
+        {
             Some(Ordering::Less)
         } else {
             None
@@ -53,12 +58,10 @@ impl<A: Ord + Clone + Encodable + Decodable> PartialOrd for VClock<A> {
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
     /// Returns a new `VClock` instance.
     pub fn new() -> VClock<A> {
-        VClock {
-            dots: BTreeMap::new()
-        }
+        VClock { dots: BTreeMap::new() }
     }
 
     /// For a particular actor, possibly store a new counter
@@ -99,9 +102,7 @@ impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
     /// ```
     ///
     pub fn increment(&mut self, actor: A) -> Counter {
-        let next = self.dots.get(&actor)
-                            .map(|c| *c)
-                            .unwrap_or(0) + 1;
+        let next = self.dots.get(&actor).map(|c| *c).unwrap_or(0) + 1;
         self.dots.insert(actor, next);
         next
     }
@@ -133,10 +134,15 @@ impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
     /// Generally prefer using the higher-level comparison operators
     /// between vclocks over this specific method.
     #[inline]
-    pub fn contains_descendent_element(&self, actor: &A, counter: &Counter) -> bool {
-        self.dots.get(actor)
-                 .map(|our_counter| our_counter >= counter)
-                 .unwrap_or(false)
+    pub fn contains_descendent_element(
+        &self,
+        actor: &A,
+        counter: &Counter,
+    ) -> bool {
+        self.dots
+            .get(actor)
+            .map(|our_counter| our_counter >= counter)
+            .unwrap_or(false)
     }
 
     /// True if two vector clocks have diverged.
@@ -165,7 +171,10 @@ impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
     }
 
     /// Return the dots that self dominates compared to another clock.
-    pub fn dominating_dots(&self, dots: &BTreeMap<A, Counter>) -> BTreeMap<A, Counter> {
+    pub fn dominating_dots(
+        &self,
+        dots: &BTreeMap<A, Counter>,
+    ) -> BTreeMap<A, Counter> {
         let mut ret = BTreeMap::new();
         for (actor, counter) in self.dots.iter() {
             let other = dots.get(actor).map(|c| *c).unwrap_or(0);
@@ -202,9 +211,7 @@ impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
     /// ```
     pub fn dominating_vclock(&self, other: &VClock<A>) -> VClock<A> {
         let dots = self.dominating_dots(&other.dots);
-        VClock {
-            dots: dots
-        }
+        VClock { dots: dots }
     }
 
     /// Returns the common elements (same actor and counter)
@@ -218,35 +225,37 @@ impl<A: Ord + Clone + Encodable + Decodable> VClock<A> {
                 }
             }
         }
-        VClock {
-            dots: dots
-        }
-    }
-}
-
-impl Arbitrary for VClock<u16> {
-    fn arbitrary<G: Gen>(g: &mut G) -> VClock<u16> {
-        let mut v = VClock::new();
-        for witness in 0..g.gen_range(0, 7) {
-            v.witness(witness, g.gen_range(1, 7)).unwrap();
-        }
-        v
-    }
-
-    fn shrink(&self) -> Box<Iterator<Item=VClock<u16>>> {
-        let mut smaller = vec![];
-        for k in self.dots.keys() {
-            let mut vc = self.clone();
-            vc.dots.remove(k);
-            smaller.push(vc)
-        }
-        Box::new(smaller.into_iter())
+        VClock { dots: dots }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    extern crate rand;
+    extern crate quickcheck;
+
+    use self::quickcheck::{Arbitrary, Gen};
     use super::*;
+
+    impl Arbitrary for VClock<u16> {
+        fn arbitrary<G: Gen>(g: &mut G) -> VClock<u16> {
+            let mut v = VClock::new();
+            for witness in 0..g.gen_range(0, 7) {
+                v.witness(witness, g.gen_range(1, 7)).unwrap();
+            }
+            v
+        }
+
+        fn shrink(&self) -> Box<Iterator<Item = VClock<u16>>> {
+            let mut smaller = vec![];
+            for k in self.dots.keys() {
+                let mut vc = self.clone();
+                vc.dots.remove(k);
+                smaller.push(vc)
+            }
+            Box::new(smaller.into_iter())
+        }
+    }
 
     #[test]
     fn test_merge() {

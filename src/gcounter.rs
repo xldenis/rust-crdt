@@ -1,8 +1,6 @@
-use std::cmp::{Ordering};
+use super::*;
 
-use rustc_serialize::{Encodable, Decodable};
-
-use super::VClock;
+use std::cmp::Ordering;
 
 /// `GCounter` is a grow-only witnessed counter.
 ///
@@ -18,37 +16,36 @@ use super::VClock;
 /// a.increment("A".to_string());
 /// assert!(a > b);
 /// ```
-#[derive(Debug, Eq, Clone, Hash, RustcEncodable, RustcDecodable)]
-pub struct GCounter<A: Ord + Clone + Encodable + Decodable> {
-    inner: VClock<A>
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
+pub struct GCounter<A: Ord + Clone + Serialize + DeserializeOwned> {
+    inner: VClock<A>,
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> Ord for GCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> Ord for GCounter<A> {
     fn cmp(&self, other: &GCounter<A>) -> Ordering {
         let (c, oc) = (self.value(), other.value());
         c.cmp(&oc)
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> PartialOrd for GCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd for GCounter<A> {
     fn partial_cmp(&self, other: &GCounter<A>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> PartialEq for GCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialEq for GCounter<A> {
     fn eq(&self, other: &GCounter<A>) -> bool {
         let (c, oc) = (self.value(), other.value());
         c == oc
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> GCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> GCounter<A> {
     /// Produces a new `GCounter`.
     pub fn new() -> GCounter<A> {
-        GCounter {
-            inner: VClock::new()
-        }
+        GCounter { inner: VClock::new() }
     }
 
     /// Increments a particular actor's counter.
@@ -95,4 +92,3 @@ mod tests {
         assert!(a > b);
     }
 }
-

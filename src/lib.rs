@@ -3,11 +3,11 @@
 #![crate_type = "lib"]
 #![deny(missing_docs)]
 
-pub use vclock::VClock;
-pub use orswot::Orswot;
-pub use lwwreg::LWWReg;
 pub use gcounter::GCounter;
+pub use lwwreg::LWWReg;
+pub use orswot::Orswot;
 pub use pncounter::PNCounter;
+pub use vclock::VClock;
 
 /// `lwwreg` contains the last-write-wins register.
 pub mod lwwreg;
@@ -20,15 +20,14 @@ pub mod gcounter;
 /// `pncounter` contains the positive-negative counter
 pub mod pncounter;
 
-extern crate rustc_serialize;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
 extern crate bincode;
-extern crate quickcheck;
-extern crate rand;
-#[macro_use] extern crate maplit;
 
-use bincode::SizeLimit;
-use bincode::rustc_serialize::{encode, decode, DecodingResult};
-use rustc_serialize::{Encodable, Decodable};
+use bincode::{Infinite, deserialize, serialize};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// Dumps this type to binary.
 ///
@@ -42,8 +41,8 @@ use rustc_serialize::{Encodable, Decodable};
 /// let decoded = from_binary(encoded).unwrap();
 /// assert_eq!(a, decoded);
 /// ```
-pub fn to_binary<A: Encodable>(s: &A) -> Vec<u8> {
-    encode(s, SizeLimit::Infinite).unwrap()
+pub fn to_binary<A: Serialize>(s: &A) -> Vec<u8> {
+    serialize(s, Infinite).unwrap()
 }
 
 /// Attempts to reconstruct a type from binary.
@@ -58,6 +57,8 @@ pub fn to_binary<A: Encodable>(s: &A) -> Vec<u8> {
 /// let decoded = from_binary(encoded).unwrap();
 /// assert_eq!(a, decoded);
 /// ```
-pub fn from_binary<A: Decodable>(encoded: Vec<u8>) -> DecodingResult<A> {
-    decode(&encoded[..])
+pub fn from_binary<A: DeserializeOwned>(
+    encoded: Vec<u8>,
+) -> bincode::Result<A> {
+    deserialize(&encoded[..])
 }

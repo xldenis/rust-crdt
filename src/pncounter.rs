@@ -1,8 +1,6 @@
-use std::cmp::{Ordering};
+use super::*;
 
-use super::GCounter;
-
-use rustc_serialize::{Encodable, Decodable};
+use std::cmp::Ordering;
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate
@@ -22,34 +20,35 @@ use rustc_serialize::{Encodable, Decodable};
 /// a.increment("A".to_string());
 /// assert_eq!(a.value(), 2);
 /// ```
-
-#[derive(Debug, Eq, Clone, Hash, RustcEncodable, RustcDecodable)]
-pub struct PNCounter<A: Ord + Clone + Encodable + Decodable> {
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
+pub struct PNCounter<A: Ord + Clone + Serialize + DeserializeOwned> {
     p: GCounter<A>,
     n: GCounter<A>,
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> Ord for PNCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> Ord for PNCounter<A> {
     fn cmp(&self, other: &PNCounter<A>) -> Ordering {
         let (c, oc) = (self.value(), other.value());
         c.cmp(&oc)
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> PartialOrd for PNCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd
+    for PNCounter<A> {
     fn partial_cmp(&self, other: &PNCounter<A>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> PartialEq for PNCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialEq for PNCounter<A> {
     fn eq(&self, other: &PNCounter<A>) -> bool {
         let (c, oc) = (self.value(), other.value());
         c == oc
     }
 }
 
-impl<A: Ord + Clone + Encodable + Decodable> PNCounter<A> {
+impl<A: Ord + Clone + Serialize + DeserializeOwned> PNCounter<A> {
     /// Produces a new `PNCounter`.
     pub fn new() -> PNCounter<A> {
         PNCounter {
@@ -97,12 +96,13 @@ impl<A: Ord + Clone + Encodable + Decodable> PNCounter<A> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
-    use std::collections::BTreeSet;
-    use rand::{self, Rng};
+    extern crate rand;
+    extern crate quickcheck;
 
-    use ::GCounter;
+    use self::quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
+    use super::*;
+
+    use std::collections::BTreeSet;
 
     const ACTOR_MAX: u16 = 11;
     #[derive(Debug, Clone)]
@@ -120,7 +120,7 @@ mod tests {
             }
         }
 
-        fn shrink(&self) -> Box<Iterator<Item=Op>> {
+        fn shrink(&self) -> Box<Iterator<Item = Op>> {
             Box::new(vec![].into_iter())
         }
     }
@@ -131,17 +131,15 @@ mod tests {
     }
 
     impl Arbitrary for OpVec {
-        fn arbitrary<G: Gen>(g: &mut G )-> OpVec {
+        fn arbitrary<G: Gen>(g: &mut G) -> OpVec {
             let mut ops = vec![];
             for _ in 0..g.gen_range(1, 100) {
                 ops.push(Op::arbitrary(g));
             }
-            OpVec {
-                ops: ops,
-            }
+            OpVec { ops: ops }
         }
 
-        fn shrink(&self) -> Box<Iterator<Item=OpVec>> {
+        fn shrink(&self) -> Box<Iterator<Item = OpVec>> {
             let mut smaller = vec![];
             for i in 0..self.ops.len() {
                 let mut clone = self.clone();
@@ -159,15 +157,20 @@ mod tests {
         // Permute the interleaving of operations should converge.
         // Largely taken directly from orswot
         for i in 2..ACTOR_MAX {
-            let mut witnesses: Vec<PNCounter<i16>> = (0..i).map(|_| PNCounter::new()).collect();
+            let mut witnesses: Vec<PNCounter<i16>> =
+                (0..i).map(|_| PNCounter::new()).collect();
             for op in ops.ops.iter() {
                 match op {
                     &Op::Increment(actor) => {
-                        witnesses[(actor as usize % i as usize)].increment(actor);
-                    },
+                        witnesses[(actor as usize % i as usize)].increment(
+                            actor,
+                        );
+                    }
                     &Op::Decrement(actor) => {
-                        witnesses[(actor as usize % i as usize)].decrement(actor);
-                    },
+                        witnesses[(actor as usize % i as usize)].decrement(
+                            actor,
+                        );
+                    }
                 }
             }
             let mut merged = PNCounter::new();
@@ -190,10 +193,10 @@ mod tests {
     #[test]
     fn qc_merge_converges() {
         QuickCheck::new()
-                   .gen(StdGen::new(rand::thread_rng(), 1))
-                   .tests(1_000)
-                   .max_tests(10_000)
-                   .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
+            .gen(StdGen::new(rand::thread_rng(), 1))
+            .tests(1_000)
+            .max_tests(10_000)
+            .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
     }
 
 

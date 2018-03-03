@@ -4,24 +4,27 @@
 //! # Examples
 //!
 
+use super::*;
+
 use std::collections::{BTreeMap, BTreeSet};
-
-use rustc_serialize::{Encodable, Decodable};
-
-use super::VClock;
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
-pub struct Orswot<Member: Ord + Clone + Encodable + Decodable,
-                  Actor: Ord + Clone + Encodable + Decodable> {
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Orswot<
+    Member: Ord + Clone + Serialize + DeserializeOwned,
+    Actor: Ord + Clone + Serialize + DeserializeOwned,
+> {
     clock: VClock<Actor>,
     entries: BTreeMap<Member, VClock<Actor>>,
     deferred: BTreeMap<VClock<Actor>, BTreeSet<Member>>,
 }
 
-impl<Member: Ord + Clone + Encodable + Decodable,
-     Actor: Ord + Clone + Encodable + Decodable> Orswot<Member, Actor> {
+impl<
+    Member: Ord + Clone + Serialize + DeserializeOwned,
+    Actor: Ord + Clone + Serialize + DeserializeOwned,
+> Orswot<Member, Actor> {
     /// Returns a new `Orswot` instance.
     pub fn new() -> Orswot<Member, Actor> {
         Orswot {
@@ -70,10 +73,14 @@ impl<Member: Ord + Clone + Encodable + Decodable,
     }
 
     /// Remove a member using a witnessing context.
-    pub fn remove_with_context(&mut self, member: Member,
-                               context: &VClock<Actor>) {
+    pub fn remove_with_context(
+        &mut self,
+        member: Member,
+        context: &VClock<Actor>,
+    ) {
         if !context.dominating_vclock(&self.clock).is_empty() {
-            let mut deferred_drops = self.deferred.remove(context).unwrap_or(BTreeSet::new());
+            let mut deferred_drops =
+                self.deferred.remove(context).unwrap_or(BTreeSet::new());
             deferred_drops.insert(member.clone());
             self.deferred.insert(context.clone(), deferred_drops);
         }
@@ -87,14 +94,22 @@ impl<Member: Ord + Clone + Encodable + Decodable,
     }
 
     /// Remove multiple members, without providing a witnessing context.
-    pub unsafe fn remove_all(&mut self, members: Vec<Member>) -> Vec<Option<VClock<Actor>>> {
-        members.into_iter().map(|member| self.remove(member)).collect()
+    pub unsafe fn remove_all(
+        &mut self,
+        members: Vec<Member>,
+    ) -> Vec<Option<VClock<Actor>>> {
+        members
+            .into_iter()
+            .map(|member| self.remove(member))
+            .collect()
     }
 
     /// Remove multiple members with a witnessing context.
-    pub fn remove_all_with_context(&mut self,
-                                   members: Vec<Member>,
-                                   context: &VClock<Actor>) {
+    pub fn remove_all_with_context(
+        &mut self,
+        members: Vec<Member>,
+        context: &VClock<Actor>,
+    ) {
         for member in members.into_iter() {
             self.remove_with_context(member, context);
         }
@@ -122,7 +137,7 @@ impl<Member: Ord + Clone + Encodable + Decodable,
                         // the other orswot has not witnessed this add, so add it
                         keep.insert(entry, clock);
                     }
-                },
+                }
                 Some(other_entry_clock) => {
                     // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
                     // shouldn't drop it!
@@ -156,7 +171,8 @@ impl<Member: Ord + Clone + Encodable + Decodable,
 
         // merge deferred removals
         for (clock, deferred) in other.deferred.iter() {
-            let mut our_deferred = self.deferred.remove(&clock).unwrap_or(BTreeSet::new());
+            let mut our_deferred =
+                self.deferred.remove(&clock).unwrap_or(BTreeSet::new());
             for e in deferred.iter() {
                 our_deferred.insert(e.clone());
             }
@@ -187,28 +203,25 @@ impl<Member: Ord + Clone + Encodable + Decodable,
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    extern crate rand;
+    extern crate quickcheck;
 
-    use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
-    use rand::{self, Rng};
-
+    use self::quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
     use super::*;
-    use ::VClock;
+    use VClock;
+    use std::collections::BTreeSet;
 
     const ACTOR_MAX: u16 = 11;
 
     // TODO(tyler) perform quickchecking a la https://github.com/basho/riak_dt/blob/develop/src/riak_dt_orswot.erl#L625
     #[derive(Debug, Clone)]
     enum Op {
-        Add {
-            member: u16,
-            actor: u16,
-        },
+        Add { member: u16, actor: u16 },
         Remove {
             member: u16,
             actor: u16,
             ctx: Option<VClock<u16>>,
-        }
+        },
     }
 
     impl Arbitrary for Op {
@@ -236,18 +249,22 @@ mod tests {
             }
         }
 
-        fn shrink(&self) -> Box<Iterator<Item=Op>> {
+        fn shrink(&self) -> Box<Iterator<Item = Op>> {
             match self {
-                &Op::Remove{ctx: Some(ref ctx), member, actor} => {
-                    Box::new(ctx.shrink()
-                                .map(move |c|
-                                     Op::Remove{
-                                         ctx: Some(c),
-                                         member: member,
-                                         actor: actor,
-                                     }))
-                },
-                _ => Box::new(vec![].into_iter())
+                &Op::Remove {
+                    ctx: Some(ref ctx),
+                    member,
+                    actor,
+                } => {
+                    Box::new(ctx.shrink().map(move |c| {
+                        Op::Remove {
+                            ctx: Some(c),
+                            member: member,
+                            actor: actor,
+                        }
+                    }))
+                }
+                _ => Box::new(vec![].into_iter()),
             }
         }
     }
@@ -267,24 +284,22 @@ mod tests {
                 // once, to force determinism in the face of
                 // behavior shown in `weird_highlight_4` below
                 match op.clone() {
-                    Op::Add{member, ..} => {
+                    Op::Add { member, .. } => {
                         if !seen_adds.contains(&member) {
                             seen_adds.insert(member.clone());
                             ops.push(op);
                         }
-                    },
+                    }
                     _ => {
                         ops.push(op);
                     }
                 }
 
             }
-            OpVec {
-                ops: ops,
-            }
+            OpVec { ops: ops }
         }
 
-        fn shrink(&self) -> Box<Iterator<Item=OpVec>> {
+        fn shrink(&self) -> Box<Iterator<Item = OpVec>> {
             let mut smaller = vec![];
             for i in 0..self.ops.len() {
                 let mut clone = self.clone();
@@ -304,17 +319,29 @@ mod tests {
         // all converged.
         let mut results = BTreeSet::new();
         for i in 2..ACTOR_MAX {
-            let mut witnesses: Vec<Orswot<u16, u16>> = (0..i).map(|_| Orswot::new()).collect();
+            let mut witnesses: Vec<Orswot<u16, u16>> =
+                (0..i).map(|_| Orswot::new()).collect();
             for op in ops.ops.iter() {
                 match op {
-                    &Op::Add{member, actor} => {
+                    &Op::Add { member, actor } => {
                         witnesses[(actor % i) as usize].add(member, actor);
+                    }
+                    &Op::Remove {
+                        ctx: None,
+                        member,
+                        actor,
+                    } => unsafe {
+                        witnesses[(actor % i) as usize].remove(member);
                     },
-                    &Op::Remove{ctx: None, member, actor} => {
-                        unsafe { witnesses[(actor % i) as usize].remove(member); }
-                    },
-                    &Op::Remove{ctx: Some(ref ctx), member, actor} => {
-                        witnesses[(actor % i) as usize].remove_with_context(member, ctx);
+                    &Op::Remove {
+                        ctx: Some(ref ctx),
+                        member,
+                        actor,
+                    } => {
+                        witnesses[(actor % i) as usize].remove_with_context(
+                            member,
+                            ctx,
+                        );
                     }
                 }
             }
@@ -344,10 +371,10 @@ mod tests {
     //#[ignore]
     fn qc_merge_converges() {
         QuickCheck::new()
-                   .gen(StdGen::new(rand::thread_rng(), 1))
-                   .tests(1_000)
-                   .max_tests(10_000)
-                   .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
+            .gen(StdGen::new(rand::thread_rng(), 1))
+            .tests(100)
+            .max_tests(10_000)
+            .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
     }
 
     /// When two orswots have identical clocks, but different elements,
@@ -373,7 +400,9 @@ mod tests {
     fn weird_highlight_2() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
         a.add(1, 1);
-        unsafe { b.remove(1); }
+        unsafe {
+            b.remove(1);
+        }
         a.merge(b);
         assert_eq!(a.value(), vec![1]);
     }
@@ -382,7 +411,9 @@ mod tests {
     #[test]
     fn weird_highlight_3() {
         let (mut a, b) = (Orswot::new(), Orswot::new());
-        let ctx = VClock { dots: btreemap!{"actor".to_string() => 3} };
+        let ctx = VClock {
+            dots: vec![("actor".to_string(), 3)].into_iter().collect(),
+        };
 
         a.remove_with_context("element".to_string(), &ctx);
         a.add("element".to_string(), "actor".to_string());
@@ -396,10 +427,9 @@ mod tests {
     fn weird_highlight_4() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
         let ctx = VClock {
-            dots: btreemap!{
-                "actor 1".to_string() => 2,
-                "actor 2".to_string() => 2,
-            }
+            dots: vec![("actor 1".to_string(), 2), ("actor 2".to_string(), 2)]
+                .into_iter()
+                .collect(),
         };
         a.add("element".to_string(), "actor 7".to_string());
         b.remove_with_context("element".to_string(), &ctx);
@@ -417,8 +447,8 @@ mod tests {
     //  if non-related elem is added, it misses both
     fn ensure_deferred_merges() {
         let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        let ctx1 = VClock { dots: btreemap!{5 => 4} };
-        let ctx2 = VClock { dots: btreemap!{4 => 4} };
+        let ctx1 = VClock { dots: vec![(5, 4)].into_iter().collect() };
+        let ctx2 = VClock { dots: vec![(4, 4)].into_iter().collect() };
         b.add("element 1".to_string(), 5);
         b.remove_with_context("element 1".to_string(), &ctx1);
         a.add("element 4".to_string(), 6);
@@ -435,7 +465,8 @@ mod tests {
     // were not properly preserved across merges.
     #[test]
     fn preserve_deferred_across_merges() {
-        let (mut a, mut b, mut c) = (Orswot::new(), Orswot::new(), Orswot::new());
+        let (mut a, mut b, mut c) =
+            (Orswot::new(), Orswot::new(), Orswot::new());
         // add element 5 from witness 1
         a.add(5, 1);
 
@@ -488,7 +519,9 @@ mod tests {
         assert_eq!(c.value(), vec!["bar".to_string()]);
         c.merge(b);
         assert_eq!(c.value(), vec!["bar".to_string(), "baz".to_string()]);
-        unsafe { a.remove("bar".to_string()); }
+        unsafe {
+            a.remove("bar".to_string());
+        }
         let mut d = a.clone();
         d.merge(c);
         assert_eq!(d.value(), vec!["baz".to_string()]);
@@ -503,12 +536,16 @@ mod tests {
         a.add("Z".to_string(), "A".to_string());
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
-        unsafe { a.remove("Z".to_string()); }
+        unsafe {
+            a.remove("Z".to_string());
+        }
         b.add("Z".to_string(), "B".to_string());
         // Replicate B to A, so now A has a Z, the one with a Dot of
         // {b,1} and clock of [{a, 1}, {b, 1}]
         a.merge(b.clone());
-        unsafe { b.remove("Z".to_string()); }
+        unsafe {
+            b.remove("Z".to_string());
+        }
         // Both C and A have a 'Z', but when they merge, there should be
         // no 'Z' as C's has been removed by A and A's has been removed by
         // C.
@@ -526,7 +563,9 @@ mod tests {
         a.add("Z".to_string(), 1);
         b.add("Z".to_string(), 2);
         let c = a.clone();
-        unsafe { a.remove("Z".to_string()); }
+        unsafe {
+            a.remove("Z".to_string());
+        }
 
         // replicate B to A, now A has B's 'Z'
         a.merge(b.clone());
@@ -537,7 +576,9 @@ mod tests {
         expected_clock.increment(2);
         assert_eq!(a.clock, expected_clock);
 
-        unsafe { b.remove("Z".to_string()); }
+        unsafe {
+            b.remove("Z".to_string());
+        }
         assert!(b.value().is_empty());
 
         // Replicate C to B, now B has A's old 'Z'

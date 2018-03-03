@@ -1,19 +1,17 @@
+use super::*;
+
 use std::collections::BTreeSet;
 
-use rustc_serialize::{Encodable, Decodable};
-
 /// A `GSet` is a grow-only set.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
-pub struct GSet<A: Ord + Encodable + Decodable> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct GSet<A: Ord + Serialize + DeserializeOwned> {
     value: BTreeSet<A>,
 }
 
-impl<A: Ord + Encodable + Decodable> GSet<A> {
+impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
     /// Instantiates an empty `GSet`.
     pub fn new() -> GSet<A> {
-        GSet {
-            value: BTreeSet::new()
-        }
+        GSet { value: BTreeSet::new() }
     }
 
     /// Merges another `GSet` into this one.
