@@ -42,8 +42,8 @@ impl<T, D, A> ComposableCrdt<A> for LWWReg<T, D> where
     D: Clone + Ord + Serialize + DeserializeOwned + Default,
     A: Ord + Clone + Serialize + DeserializeOwned
 {
-    fn set_clock(&mut self, _clock: VClock<A>) {
-        // no-op
+    fn default_with_clock(_clock: VClock<A>) -> Self {
+        Self::default()
     }
 
     /// Combines two `LWWReg` instances according to the dot that

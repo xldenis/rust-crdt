@@ -38,13 +38,16 @@ struct MapEntry<V, A> where
     // operation and we will keep the key.
     clock: VClock<A>,
 
+    // This clock marks the most recent time that this entry did not exist in this set.
+    // any mutation to this entry which happened before this birth_clock should be discarded.
+    //
+    // The birth clock is reset everytime an insert or a remove with a concurrent update happens.
+    // It represents a lower bound for this entry. In other words: all data in this entry should
+    // be a descendent of this clock.
+    birth_clock: VClock<A>,
+
     // The nested CRDT
-    val: V,
-    
-    // Tombstone is an empty V with clock set to the (vclock) time of the latest remove
-    // operation. This tombstone is always merged into values to give us the Reset-Remove semantics.
-    // It says: any operations happening before this tombstones clock are discarded.
-    tombstone: V
+    val: V
 }
 
 impl<K, V, A> ComposableCrdt<A> for Map<K, V, A> where
@@ -52,34 +55,33 @@ impl<K, V, A> ComposableCrdt<A> for Map<K, V, A> where
     V: Clone + Serialize + DeserializeOwned + ComposableCrdt<A>,
     A: Ord + Clone + Serialize + DeserializeOwned
 {
-    // set's the clock of the map.
-    // Used by a containing map to track causality when updating sub-crdt's
-    fn set_clock(&mut self, clock: VClock<A>) {
-        self.clock = clock;
+
+    fn default_with_clock(clock: VClock<A>) -> Self {
+        let mut default = Self::default();
+        default.clock = clock;
+        default
     }
 
     fn merge(&mut self, other: &Self) -> Result<()> {
         for (key, entry) in other.entries.iter() {
             // TODO(david) see about avoiding this remove here with entries.get_mut
-            if let Some(mut existing_entry) = self.entries.remove(&key) {
-                existing_entry.clock.merge(&entry.clock);
-                existing_entry.val.merge(&entry.val)?;
-                existing_entry.tombstone.merge(&entry.tombstone)?;
-                existing_entry.val.merge(&existing_entry.tombstone)?;
-                self.entries.insert(key.clone(), existing_entry);
+            if let Some(mut my_entry) = self.entries.remove(&key) {
+                my_entry.clock.merge(&entry.clock);
+                my_entry.birth_clock.merge(&entry.birth_clock);
+                my_entry.val.merge(&entry.val)?;
+                my_entry.val.merge(&V::default_with_clock(my_entry.birth_clock.clone()))?;
+                self.entries.insert(key.clone(), my_entry);
             } else {
-                // we don't have this entry, is this because we removed it? or is it new
+                // we don't have this entry, is this because we removed it? or is it new?
                 if self.clock >= entry.clock {
                     // we removed this entry! don't add it back!
                 } else {
                     // this is either a new entry from other, or an entry we removed but
                     // other has concurrently mutated.
-                    let mut clock = entry.clock.clone();
-                    let mut tombstone = V::default();
-                    tombstone.set_clock(self.clock.clone());
-                    let mut val = entry.val.clone();
-                    val.merge(&tombstone)?;
-                    self.entries.insert(key.clone(), MapEntry { clock, val, tombstone });
+                    let mut new_entry = entry.clone();
+                    new_entry.birth_clock.merge(&self.clock);
+                    new_entry.val.merge(&V::default_with_clock(new_entry.birth_clock.clone()))?;
+                    self.entries.insert(key.clone(), new_entry);
                 }
             }
         }
@@ -93,8 +95,8 @@ impl<K, V, A> ComposableCrdt<A> for Map<K, V, A> where
                     to_remove.push(key.clone());
                 } else if other.clock.concurrent(&entry.clock) {
                     // the other has removed this entry but we have modified it as well
-                    entry.tombstone.set_clock(other.clock.clone());
-                    entry.val.merge(&entry.tombstone)?;
+                    entry.birth_clock.merge(&other.clock);
+                    entry.val.merge(&V::default_with_clock(entry.birth_clock.clone()))?;
                 }
             }
         }
@@ -145,14 +147,14 @@ impl<K, V, A> Map<K, V, A> where
     /// !! `insert()` destroy causality! think of it as the equivalent of removing and adding a new element.
     ///       if you want to update a crdt while preserving causal history, consider using `update()`.
     pub fn insert(&mut self, key: K, val: V, actor: A) {
+        let birth_clock = self.clock.clone();
+
         let actor_version = self.clock.increment(actor.clone());
-        let mut tombstone = V::default();
-        tombstone.set_clock(self.clock.clone());
         let mut dot = VClock::new();
         // this witness should never fail because dot is brand new
         dot.witness(actor, actor_version).unwrap();
-
-        self.entries.insert(key, MapEntry { clock: dot, val, tombstone });
+        
+        self.entries.insert(key, MapEntry { clock: dot, birth_clock, val });
     }
 
     /// hehe
@@ -292,8 +294,8 @@ mod tests {
         m.clock.increment("actor 1".into());
         m.entries.insert(0, MapEntry {
             clock: m.clock.clone(),
-            val: LWWReg::default(),
-            tombstone: LWWReg::default()
+            birth_clock: VClock::new(),
+            val: LWWReg::default()
         });
 
         assert_eq!(m.get(&0), Some(&LWWReg { val: 0, dot: 0 }));

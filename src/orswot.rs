@@ -40,8 +40,10 @@ impl<Member, Actor> ComposableCrdt<Actor> for Orswot<Member, Actor> where
     Member: Ord + Clone + Serialize + DeserializeOwned,
     Actor: Ord + Clone + Serialize + DeserializeOwned
 {
-    fn set_clock(&mut self, clock: VClock<Actor>) {
-        self.clock = clock;
+    fn default_with_clock(clock: VClock<Actor>) -> Self{
+        let mut default = Orswot::default();
+        default.clock = clock;
+        default
     }
 
     /// Merge combines another `Orswot` with this one.

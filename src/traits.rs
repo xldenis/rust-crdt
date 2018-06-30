@@ -8,8 +8,8 @@ use vclock::VClock;
 pub trait ComposableCrdt<A>: Default where
     A : Ord + Clone + Serialize + DeserializeOwned
 {
-    /// set the vclock of the crdt (if one exists) to the one passed in
-    fn set_clock(&mut self, clock: VClock<A>);
+    /// Construct the default CRDT with the CRDT clock set to the given clock
+    fn default_with_clock(clock: VClock<A>) -> Self;
 
     /// merge the other CRDT into this CRDT.
     fn merge(&mut self, other: &Self) -> Result<()>;
