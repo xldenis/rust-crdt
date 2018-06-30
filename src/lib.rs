@@ -8,8 +8,6 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-mod traits;
-
 pub use gcounter::GCounter;
 pub use lwwreg::LWWReg;
 pub use orswot::Orswot;
@@ -17,6 +15,9 @@ pub use pncounter::PNCounter;
 pub use vclock::VClock;
 pub use map::Map;
 
+
+/// `traits` contains Trait commonly used when working with CRDT's
+pub mod traits;
 /// `lwwreg` contains the last-write-wins register.
 pub mod lwwreg;
 /// `vclock` contains the vector clock.

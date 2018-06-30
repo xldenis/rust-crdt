@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 use error::Result;
 use traits::ComposableCrdt;
 use vclock::VClock;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// The Map CRDT allows for composition of CRDT's
 #[derive(Debug, Clone, PartialEq)]
@@ -14,8 +14,7 @@ pub struct Map<K, V, A> where
     A: Ord + Clone + Serialize + DeserializeOwned
 {
     clock: VClock<A>,
-    entries: BTreeMap<K, MapEntry<V, A>>,
-    deferred: BTreeMap<VClock<A>, BTreeSet<K>>
+    entries: BTreeMap<K, MapEntry<V, A>>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -60,47 +59,51 @@ impl<K, V, A> ComposableCrdt<A> for Map<K, V, A> where
     }
 
     fn merge(&mut self, other: &Self) -> Result<()> {
-        self.clock.merge(&other.clock);
         for (key, entry) in other.entries.iter() {
-            let existing_entry = self.entries.entry(key.clone())
-                .or_insert_with(|| entry.clone());
-
-            existing_entry.clock.merge(&entry.clock);
-            existing_entry.val.merge(&entry.val)?;
-            existing_entry.tombstone.merge(&entry.tombstone)?;
-            existing_entry.val.merge(&existing_entry.tombstone)?;
-        }
-
-        for (ctx, keys) in other.deferred.iter() {
-            if !(&self.clock >= ctx) {
-                let mut existing_keys = self.deferred.entry(ctx.clone())
-                    .or_insert_with(|| BTreeSet::default());
-                existing_keys.extend(keys.iter().cloned());
+            // TODO(david) see about avoiding this remove here with entries.get_mut
+            if let Some(mut existing_entry) = self.entries.remove(&key) {
+                existing_entry.clock.merge(&entry.clock);
+                existing_entry.val.merge(&entry.val)?;
+                existing_entry.tombstone.merge(&entry.tombstone)?;
+                existing_entry.val.merge(&existing_entry.tombstone)?;
+                self.entries.insert(key.clone(), existing_entry);
+            } else {
+                // we don't have this entry, is this because we removed it? or is it new
+                if self.clock >= entry.clock {
+                    // we removed this entry! don't add it back!
+                } else {
+                    // this is either a new entry from other, or an entry we removed but
+                    // other has concurrently mutated.
+                    let mut clock = entry.clock.clone();
+                    let mut tombstone = V::default();
+                    tombstone.set_clock(self.clock.clone());
+                    let mut val = entry.val.clone();
+                    val.merge(&tombstone)?;
+                    self.entries.insert(key.clone(), MapEntry { clock, val, tombstone });
+                }
             }
         }
 
-        let new_deferred: BTreeMap<VClock<A>, BTreeSet<K>> = self.deferred.iter()
-            .filter(|(ctx, _)| !(&self.clock > ctx))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-
-        // now apply the deferred removes
-        for (ctx, key_set) in new_deferred.iter() {
-            for key in key_set.iter().cloned() {
-                self.remove_with_ctx(key, ctx.clone());
-            }
-        }
-
+        // check for entries that we have but are missing in the other
         let mut to_remove = Vec::new();
-        for (key, entry) in self.entries.iter() {
-            if other.entries.get(&key).is_none() && other.clock >= entry.clock{
-                to_remove.push(key.clone());
+        for (key, mut entry) in self.entries.iter_mut() {
+            if other.entries.get(&key).is_none() {
+                if other.clock >= entry.clock {
+                    // the other has seen this entry and removed it
+                    to_remove.push(key.clone());
+                } else if other.clock.concurrent(&entry.clock) {
+                    // the other has removed this entry but we have modified it as well
+                    entry.tombstone.set_clock(other.clock.clone());
+                    entry.val.merge(&entry.tombstone)?;
+                }
             }
         }
 
         for key in to_remove.into_iter() {
-            self.remove_with_ctx(key, other.clock.clone());
+            self.entries.remove(&key);
         }
+
+        self.clock.merge(&other.clock);
         Ok(())
     }
 }
@@ -124,9 +127,8 @@ impl<K, V, A> Map<K, V, A> where
     pub fn new() -> Map<K, V, A> {
         Map {
             clock: VClock::new(),
-            entries: BTreeMap::new(),
-            deferred: BTreeMap::new()
-        }
+            entries: BTreeMap::new()
+         }
     }
 
     /// Returns the number of entries in the Map
@@ -140,87 +142,23 @@ impl<K, V, A> Map<K, V, A> where
             .map(|map_entry| &map_entry.val)
     }
 
-    /// inserts adds `(key, val.kind()) -> val` mapping to the Map.
-    ///
-    /// !! NOTE:  potentially unexpected behaviour
-    /// !! 1. this map stores multiple entries under the same `key` if they are of different kind().
-    /// e.g.
-    /// ``` rust
-    /// use crdts::{Map, LWWReg};
-    /// let mut ages: Map<String, LWWReg<u16, u16>, String> = Map::new();
-    /// assert_eq!(ages.insert("bob".into(), LWWReg { val: 48, dot: 0 }, "A".into()), None);
-    /// assert_eq!(ages.get(&"bob".into()), Some(&LWWReg { val: 48, dot: 0 }));
-    /// ```
-    ///
-    /// !! 2. `insert()` destroy causality! think of it as the equivalent of removing and adding a new element.
+    /// !! `insert()` destroy causality! think of it as the equivalent of removing and adding a new element.
     ///       if you want to update a crdt while preserving causal history, consider using `update()`.
     pub fn insert(&mut self, key: K, val: V, actor: A) {
-        let mut clock = VClock::new();
-        // this witness() should never fail since this clock is brand new
-        let actor_version = self.clock.get(&actor).unwrap_or(0);
-        clock.witness(actor,  actor_version + 1).unwrap();
-        self.insert_with_ctx(key, val, clock);
+        let actor_version = self.clock.increment(actor.clone());
+        let mut tombstone = V::default();
+        tombstone.set_clock(self.clock.clone());
+        let mut dot = VClock::new();
+        // this witness should never fail because dot is brand new
+        dot.witness(actor, actor_version).unwrap();
+
+        self.entries.insert(key, MapEntry { clock: dot, val, tombstone });
     }
 
-    /// Same as insert but instead of using a bumped map clock, you provide your own
-    pub fn insert_with_ctx(&mut self, key: K, val: V, ctx: VClock<A>) {
-        if !(self.clock >= ctx) {
-            self.clock.merge(&ctx);
-            let mut tombstone = V::default();
-            tombstone.set_clock(ctx.clone());
-            self.entries.insert(key, MapEntry { clock: ctx, val, tombstone });
-        }
-    }
-
-    /// Update a nested CRDT preserving causality
-    ///
-    /// If an entry doesn't exist, the `default` function will be used to
-    /// create an entry prior to updater being called.
-    /// ``` rust
-    /// use crdts::{Map, LWWReg};
-    ///
-    /// let mut meredith: Map<String, LWWReg<u64, (u64, String)>, String> = Map::new();
-    /// let actor = "actor_1".to_string();
-    ///
-    /// assert_eq!(meredith.len(), 0);
-    ///
-    /// meredith.update(
-    ///   "age".into(),
-    ///   |mut reg: LWWReg<u64, (u64, String)>| {
-    ///       reg.update(48, (73, actor.clone()));
-    ///       Some(reg)
-    ///   },
-    ///   actor.clone()
-    /// );
-    /// 
-    /// assert_eq!(
-    ///     meredith.get(&"age".into()),
-    ///     Some(&LWWReg { val: 48, dot: (73, "actor_1".into()) })
-    /// );
-    ///
-    /// assert_eq!(meredith.len(), 1);
-    ///
-    /// meredith.update(
-    ///   "age".into(),
-    ///   |mut reg: LWWReg<u64, (u64, String)>| {
-    ///       if reg.val > 21 {
-    ///           None
-    ///       } else {
-    ///           Some(reg)
-    ///       }
-    ///   },
-    ///   actor.clone()
-    /// );
-    ///
-    /// assert_eq!(meredith.get(&"age".into()), None);
-    /// assert_eq!(meredith.len(), 0);
-    /// ```
-    pub fn update(
-        &mut self,
-        key: K,
-        mut updater: impl FnMut(V) -> Option<V>,
-        actor: A
-    ) {
+    /// hehe
+    pub fn update<F>(&mut self, key: K, mut updater: F,actor: A) where
+        F: FnMut(V) -> Option<V>
+    {
         let update_res = match self.entries.remove(&key) {
             Some(MapEntry {val, ..}) =>  {
                 updater(val)
@@ -237,96 +175,16 @@ impl<K, V, A> Map<K, V, A> where
         }
     }
 
-    /// Same as update() but instead of bumping the map's clock, you provide your own context
-    pub fn update_with_ctx(
-        &mut self,
-        key: K,
-        mut updater: impl FnMut(V) -> Option<V>,
-        ctx: VClock<A>
-    ) {
-        if !(self.clock >= ctx) {
-            let update_res = match self.entries.remove(&key) {
-                Some(MapEntry {val, ..}) =>  {
-                    updater(val)
-                },
-                None => {
-                    updater(V::default())
-                }
-            };
-
-            if let Some(val) = update_res {
-                self.insert_with_ctx(key, val, ctx);
-            } else {
-                self.remove_with_ctx(key, ctx);
-            }
-        }
-    }
 
     /// Remove a key from the Map
     pub fn remove(&mut self, key: K, actor: A) {
-        let mut ctx = self.clock.clone();
-        ctx.increment(actor);
-        self.remove_with_ctx(key, ctx);
-    }
+        self.clock.increment(actor.clone());
 
-    /// Removes an entry from the map under a given context.
-    /// If the given context is a descended of the map's clock,
-    /// we store a deferred remove action.
-    pub fn remove_with_ctx(&mut self, key: K, ctx: VClock<A>) {
-        if !(self.clock >= ctx) {
-            // We need to defer this remove because our clock does not
-            // descend from the context clock.
-            // There could be more operations between the map clock and the
-            // ctx clock which could invalidate this remove if we don't
-            // store the remove as deferred
-            {
-                let deferred_set = self.deferred.entry(ctx.clone())
-                    .or_insert_with(|| BTreeSet::new());
-                deferred_set.insert(key.clone());
-                println!("inserted deferred");
-            }
-            // Check the older contexts for removes of the same key.
-            // This remove obsoletes any previous remove so we cleanup a bit
-            let mut obsolete_ctxs = Vec::new();
-            for (o_ctx, mut o_set) in self.deferred.iter_mut().filter(|(pre_ctx, _)| pre_ctx < &&ctx) {
-                o_set.remove(&key);
-                if o_set.is_empty() {
-                    obsolete_ctxs.push(o_ctx.clone());
-                }
-            }
-            for obsolete_ctx in obsolete_ctxs.into_iter() {
-                self.deferred.remove(&obsolete_ctx);
+        if let Some(map_entry) = self.entries.remove(&key) {
+            if !(self.clock >= map_entry.clock) {
+                panic!("map's clock is lower than the entries clock")
             }
         }
-
-        let should_rm = if let Some(mut map_entry) = self.entries.get_mut(&key) {
-            if ctx >= map_entry.clock {
-                // ctx has seen this entry so we can remove it
-                true
-            } else {
-                // otherwise update the tombstone to have no data as of the
-                // greatest-lower-bound of the context and map clock.
-                //
-                // This says that at this lower clock bound, entry was the
-                // `default` value of the crdt (empty set / empty map / etc.)
-                //
-                // This is used to provide the reset-remove semantics
-                // ie. if one replica removes a key while another updates
-                //     the a key, on merge, only the updated datat will
-                //     survive, all else is removed.
-                map_entry.tombstone.set_clock(VClock::glb(&ctx, &self.clock));
-                false
-            }
-        } else {
-            false
-        };
-
-        if should_rm {
-            self.entries.remove(&key);
-        }
-
-        // finally update the map clock
-        self.clock.merge(&ctx);
     }
 }
 
@@ -337,35 +195,34 @@ mod tests {
     use lwwreg::LWWReg;
     use orswot::Orswot;
 
-    use quickcheck::{Arbitrary, Gen, TestResult};
+    use quickcheck::{Arbitrary, Gen};
 
 
     #[derive(Debug, Clone, PartialEq)]
     enum Op {
-        Remove(u8, VClock<u16>),
-        Insert(u8, (u8, u64, u16), VClock<u16>),
-        Update(u8, Option<(u8, u64, u16)>, VClock<u16>),
+        Rm(u8),
+        Put(u8, (u8, u64, u16)),
+        Up(u8, Option<(u8, u64, u16)>),
     }
 
     impl Op {
-        fn apply(&self, map: &mut Map<u8, LWWReg<u8, (u64, u16)>, u16>) {
+        fn apply(&self, map: &mut Map<u8, LWWReg<u8, (u64, u16)>, u16>, actor: u16) {
             match self.clone() {
-                Op::Remove(key, ctx) => {
-                    map.remove_with_ctx(key, ctx);
+                Op::Rm(key) => {
+                    map.remove(key, actor);
                 },
-                Op::Insert(key, (val, time, actor), ctx) => {
-                    map.insert_with_ctx(key, LWWReg { val: val, dot: (time, actor) }, ctx);
+                Op::Put(key, (val, time, lww_actor)) => {
+                    map.insert(key, LWWReg { val: val, dot: (time, lww_actor) }, actor);
                 },
-                Op::Update(key, None, ctx) => {
-                    map.update_with_ctx(key, |_| None, ctx);
+                Op::Up(key, None) => {
+                    map.update(key, |_| None, actor);
                 }
-                Op::Update(key, Some((val, dot, actor)), ctx) => {
-                    map.update_with_ctx(key, |mut reg| {
-                        reg.update(val, (dot, actor)).unwrap();
+                Op::Up(key, Some((val, dot, lww_actor))) => {
+                    map.update(key, |mut reg| {
+                        reg.update(val, (dot, lww_actor)).unwrap();
                         Some(reg)
-                    }, ctx);
-                }
-                            
+                    }, actor);
+                } 
             };
         }
     }
@@ -376,11 +233,11 @@ mod tests {
             let time: u64 = g.gen();
             let actor: u16 = g.gen();
             let key: u8 = g.gen();
-            let ctx: VClock<u16> = VClock::arbitrary(g);
+
             let choices = [
-                Op::Remove(key, ctx.clone()),
-                Op::Insert(key, (val, time, actor), ctx.clone()),
-                Op::Update(key, *(g.choose(&[None, Some((val, time, actor))]).unwrap()), ctx)
+                Op::Rm(key),
+                Op::Put(key, (val, time, actor)),
+                Op::Up(key, *(g.choose(&[None, Some((val, time, actor))]).unwrap()))
             ];
             let op = g.choose(&choices).unwrap();
             op.clone()
@@ -388,49 +245,28 @@ mod tests {
 
         fn shrink(&self) -> Box<Iterator<Item = Op>> {
             let vec: Vec<Op> = match self.clone() {
-                Op::Remove(key, ctx) => 
-                    vec![Op::Remove(key/2, ctx.clone())]
-                    .into_iter()
-                    .filter(|op| op != self)
-                    .chain(
-                        ctx.shrink().map(|c| Op::Remove(key, c))
-                    )
-                    .collect(),
-                Op::Insert(key, (val, time, actor), ctx) =>
-                    vec![Op::Insert(key/2, (val, time, actor),   ctx.clone()),
-                         Op::Insert(key,   (val/2, time, actor), ctx.clone()),
-                         Op::Insert(key,   (val, time/2, actor), ctx.clone()),
-                         Op::Insert(key,   (val, time, actor/2), ctx.clone())]
-                    .into_iter()
-                    .filter(|op| op != self)
-                    .chain(ctx.shrink().map(|c| {
-                        Op::Insert(key, (val, time, actor), c)
-                    }))
-                    .collect(),
-                Op::Update(key, None, ctx) =>
-                    vec![Op::Update(key/2, None, ctx.clone()),
-                         Op::Remove(key, ctx.clone())
-                    ]
-                    .into_iter()
-                    .filter(|op| op != self)
-                    .chain(
-                        ctx.shrink().map(|c| Op::Update(key, None, c))
-                    )
-                    .collect(),
-                Op::Update(key, Some((val, time, actor)), ctx) =>
-                    vec![Op::Update(key/2, Some((val, time, actor)), ctx.clone()),
-                         Op::Update(key,   Some((val/2, time, actor)), ctx.clone()),
-                         Op::Update(key,   Some((val, time/2, actor)), ctx.clone()),
-                         Op::Update(key,   Some((val, time, actor/2)), ctx.clone()),
-                         Op::Update(key,   None, ctx.clone())]
-                    .into_iter()
-                    .filter(|op| op != self)
-                    .chain(
-                        ctx.shrink().map(|c| Op::Update(key, Some((val, time, actor)), c))
-                    )
-                    .collect(),
+                Op::Rm(key) => 
+                    vec![Op::Rm(key/2)],
+                Op::Put(key, (val, time, actor)) =>
+                    vec![Op::Put(key/2, (val, time, actor)),
+                         Op::Put(key,   (val/2, time, actor)),
+                         Op::Put(key,   (val, time/2, actor)),
+                         Op::Put(key,   (val, time, actor/2))],
+                Op::Up(key, None) =>
+                    vec![Op::Up(key/2, None),
+                         Op::Rm(key)],
+                Op::Up(key, Some((val, time, actor))) =>
+                    vec![Op::Up(key/2, Some((val, time, actor))),
+                         Op::Up(key,   Some((val/2, time, actor))),
+                         Op::Up(key,   Some((val, time/2, actor))),
+                         Op::Up(key,   Some((val, time, actor/2))),
+                         Op::Up(key,   None)]
             };
-            Box::new(vec.into_iter())
+            let self_snapshot = self.clone();
+            Box::new(
+                vec.into_iter()
+                    .filter(move |op| op != &self_snapshot)
+            )
         }
     }
 
@@ -529,135 +365,47 @@ mod tests {
 
     #[test]
     fn test_reset_remove_semantics() {
-        let mut m: Map<String, Orswot<u8, String>, String> = Map::new();
-        m.update(
+        let mut m1: Map<String, Orswot<u8, String>, String> = Map::new();
+        m1.update(
             "x".into(),
             |mut x_set| {
-                x_set.add(57, "actor_1".into());
+                x_set.add(1, "a1".into());
                 Some(x_set)
             },
-            "actor_1".into()
+            "a1".into()
         );
 
-        let mut m2 = m.clone();
+        let mut m2 = m1.clone();
 
-        m.remove("x".into(), "actor_1".into());
+        m1.remove("x".into(), "a1".into());
 
         m2.update(
             "x".into(),
             |mut x_set| {
-                x_set.add(21, "actor_2".into());
+                x_set.add(2, "a2".into());
                 Some(x_set)
             },
-            "actor_2".into()
+            "a2".into()
         );
 
-        println!("m1 {:?}", m);
+        println!("m1 {:?}", m1);
         println!("m2 {:?}", m2);
-        let m_snapshot = m.clone();
-        assert!(m.merge(&m2).is_ok());
-        assert!(m2.merge(&m_snapshot).is_ok());
+        let m1_snapshot = m1.clone();
+        assert!(m1.merge(&m2).is_ok());
+        assert!(m2.merge(&m1_snapshot).is_ok());
 
-        assert_eq!(m, m2);
-
-        let x_set = m.get(&"x".into()).unwrap();
-        assert_eq!(x_set.value(), vec![21]);
-    }
-
-    #[test]
-    fn test_inserts_with_non_descendent_clocks_are_noops() {
-        let mut m: Map<u8, LWWReg<u8, u8>, u8> = Map::new();
-        m.insert_with_ctx(0, LWWReg { val: 0, dot: 0 }, VClock::new());
-        assert_eq!(m, Map::new());
-    }
-
-    #[test]
-    fn test_remove_with_non_descendent_clocks_should_be_discarded() {
-        let mut m: Map<u8, LWWReg<u8, u8>, u8> = Map::new();
-        let mut ctx = VClock::new();
-        ctx.witness(1, 23).unwrap();
-
-        m.remove_with_ctx(0, ctx.clone());
-        assert_ne!(m, Map::new()); // the remove should be stored as deferred
-        let m_snapshot = m.clone();
-        m.remove_with_ctx(0, ctx.clone()); // should be a no-op
-
-        assert_eq!(m, m_snapshot);
-    }
-
-    #[test]
-    fn test_removing_with_concurrent_clocks_should_keep_both_deferred_removes() {
-        let mut m: Map<u8, LWWReg<u8, u8>, u8> = Map::new();
-
-        let mut clock1 = VClock::new();
-        let mut clock2 = VClock::new();
-        clock1.witness(2, 6).unwrap();
-        clock2.witness(1, 2).unwrap();
-
-        m.remove_with_ctx(0, clock1.clone());
-        m.remove_with_ctx(0, clock2.clone());
-
-        assert_eq!(m.deferred.len(), 2);
-    }
-
-    #[test]
-    fn test_ancester_updates_should_be_no_ops() {
-        let mut m: Map<u8, LWWReg<u8, u8>, u8> = Map::new();
-
-        let mut clock1 = VClock::new();
-        let mut clock2 = VClock::new();
-        clock1.witness(2, 6).unwrap();
-        clock2.witness(2, 5).unwrap();
-
-        m.insert_with_ctx(0, LWWReg::default(), clock1);
-        let m_snapshot = m.clone();
-        m.update_with_ctx(0, |_| None, clock2);
-
-        assert_eq!(m, m_snapshot);
-    }
-
-    #[test]
-    fn test_dunno() {
-        // ([Remove(0, VClock { dots: {3: 6} })], [Remove(1, VClock { dots: {3: 6} })])
-//        let mut clock1 = VClock::new();
-//        let mut clock2 = VClock::new();
-//        clock1.witness(2, 5).unwrap();
-//        clock2.witness(2, 3).unwrap();
-//        let ops1 = vec![Op::Insert(0, (0, 0, 0), clock1)];
-//        let ops2 = vec![Op::Insert(1, (0, 0, 0), clock2)];
-//
-//        let mut m1 = Map::new();
-//        let mut m2 = Map::new();
-//
-//        apply_ops(&mut m1, &ops1);
-//        apply_ops(&mut m2, &ops2);
-//        
-//        apply_ops(&mut m1, &ops2);
-//        apply_ops(&mut m2, &ops1);
-//
-//        assert_eq!(m1, m2);
-    }
-    
-    fn test_ops() {
-        // ([Insert(0, (0, 0, 0), VClock { dots: {1: 5} })], [Remove(0, VClock { dots: {1: 4} })])
-        let ops1 = vec![];
-        let ops2 = vec![];
-
-        let mut m1 = Map::new();
-        let mut m2 = Map::new();
-
-        apply_ops(&mut m1, &ops1);
-        apply_ops(&mut m2, &ops2);
+        println!("m1 {:?}", m1);
+        println!("m2 {:?}", m2);
         
-        apply_ops(&mut m1, &ops2);
-        apply_ops(&mut m2, &ops1);
-
         assert_eq!(m1, m2);
+
+        let x_set = m1.get(&"x".into()).unwrap();
+        assert_eq!(x_set.value(), vec![2]);
     }
 
-    fn apply_ops(map: &mut Map<u8, LWWReg<u8, (u64, u16)>, u16>, ops: &[Op]) {
+    fn apply_ops(map: &mut Map<u8, LWWReg<u8, (u64, u16)>, u16>, ops: &[Op], actor: u16) {
         for op in ops.iter() {
-            op.apply(map);
+            op.apply(map, actor);
         }
     }
 
@@ -667,9 +415,9 @@ mod tests {
             let mut m2 = Map::new();
             let mut m3 = Map::new();
 
-            apply_ops(&mut m1, &ops1);
-            apply_ops(&mut m2, &ops2);
-            apply_ops(&mut m3, &ops3);
+            apply_ops(&mut m1, &ops1, 1);
+            apply_ops(&mut m2, &ops2, 2);
+            apply_ops(&mut m3, &ops3, 3);
 
             let mut m1_snapshot = m1.clone();
 
@@ -689,8 +437,8 @@ mod tests {
             let mut m1 = Map::new();
             let mut m2 = Map::new();
             
-            apply_ops(&mut m1, &ops1);
-            apply_ops(&mut m2, &ops2);
+            apply_ops(&mut m1, &ops1, 1);
+            apply_ops(&mut m2, &ops2, 2);
             
             // m1 ^ m2
             assert!(m1.merge(&m2).is_ok());
@@ -704,7 +452,7 @@ mod tests {
 
         fn prop_idempotency(ops: Vec<Op>) -> bool {
             let mut m = Map::new();
-            apply_ops(&mut m, &ops);
+            apply_ops(&mut m, &ops, 1);
             let m_snapshot = m.clone();
 
             // m ^ m
@@ -720,8 +468,8 @@ mod tests {
 
             let mut merge_count = skip_merge;
             for (op1, op2) in op_pairs.iter() {
-                op1.apply(&mut m1);
-                op2.apply(&mut m2);
+                op1.apply(&mut m1, 1);
+                op2.apply(&mut m2, 2);
                 if merge_count == 0 {
                     merge_count = skip_merge;
                     assert!(m1.merge(&m2).is_ok());
@@ -737,35 +485,5 @@ mod tests {
 
             m1 == m2
         }
-//
-//        fn prop_ops_commute(ops1: Vec<Op>, ops2: Vec<Op>) -> TestResult {
-//            for op1 in ops1.iter() {
-//                for op2 in ops2.iter() {
-//                    let violation = match (op1, op2) {
-//                        (Op::Remove(k1, c1), Op::Remove(k2, c2)) => c1 == c2 &&  k1 != k2,
-//                        (Op::Insert(k1, v1, c1), Op::Insert(k2, v2, c2)) => c1 == c2 && (k1 != k2 || v1 != v2),
-//                        (Op::Update(k1, v1, c1), Op::Update(k2, v2, c2)) => c1 == c2 && (k1 != k2 || v1 != v2),
-//                        (Op::Remove(_, c1), Op::Insert(_, _, c2)) => c1 == c2,
-//                        (Op::Remove(_, c1), Op::Update(_, _, c2)) => c1 == c2,
-//                        (Op::Insert(_, _, c1), Op::Remove(_, c2)) => c1 == c2,
-//                        (Op::Update(_, _, c1), Op::Remove(_, c2)) => c1 == c2,
-//                        _ => false
-//                    };
-//                    if violation {
-//                        return TestResult::discard();
-//                    }
-//                }
-//            }
-//            let mut m1 = Box::new(Map::new());
-//            let mut m2 = Box::new(Map::new());
-//
-//            apply_ops(&mut m1, &ops1);
-//            apply_ops(&mut m2, &ops2);
-//            
-//            apply_ops(&mut m1, &ops2);
-//            apply_ops(&mut m2, &ops1);
-//
-//            TestResult::from_bool(m1 == m2)
-//        }
     }
 }

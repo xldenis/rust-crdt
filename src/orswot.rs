@@ -133,10 +133,12 @@ impl<
     ///
     /// ```
     /// use crdts::Orswot;
+    /// use crdts::traits::ComposableCrdt;
+    ///
     /// let (mut a, mut b) = (Orswot::new(), Orswot::new());
     /// a.add(1, 1);
     /// b.add(2, 1);
-    /// a.merge(b);
+    /// a.merge(&b);
     /// assert!(a.value().is_empty());
     /// ```
     pub fn add(&mut self, member: Member, actor: Actor) {
