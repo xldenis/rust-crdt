@@ -43,6 +43,7 @@ impl<T, D, A> ComposableCrdt<A> for LWWReg<T, D> where
     A: Ord + Clone + Serialize + DeserializeOwned
 {
     fn default_with_clock(_clock: VClock<A>) -> Self {
+        // The LWWReg is not a causal CRDT, it has no clock!
         Self::default()
     }
 

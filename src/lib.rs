@@ -3,17 +3,13 @@
 #![crate_type = "lib"]
 #![deny(missing_docs)]
 
-use std::alloc::System;
-
-#[global_allocator]
-static A: System = System;
-
 pub use gcounter::GCounter;
 pub use lwwreg::LWWReg;
 pub use orswot::Orswot;
 pub use pncounter::PNCounter;
 pub use vclock::VClock;
 pub use map::Map;
+pub use traits::ComposableCrdt;
 
 
 /// `traits` contains Trait commonly used when working with CRDT's
@@ -40,7 +36,8 @@ extern crate serde;
 extern crate bincode;
 
 #[cfg(test)]
-#[macro_use] extern crate quickcheck;
+#[macro_use]
+extern crate quickcheck;
 
 use bincode::{Infinite, deserialize, serialize};
 use serde::Serialize;
