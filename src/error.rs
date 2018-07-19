@@ -7,9 +7,9 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// A conflicting change to a CRDT is witnessed by a dot that already exists.
-    /// We don't always check for this error class as it can be fairly expensive.
+    /// We don't always check for this error case as it can be fairly expensive.
     /// Instead, users must design their system in a way that will make these
-    /// dot collisions unlikely.
+    /// dot collisions unlikely / impossible.
     ConflictingDot,
     /// A generic error for any unmergable conflicts that may occur
     MergeConflict
@@ -21,7 +21,7 @@ impl error::Error for Error {
             Error::ConflictingDot =>
                 "Dot's are used exactly once for the lifetime of a CRDT",
             Error::MergeConflict =>
-                "There was a conflict while mergine"
+                "There was a conflict while merging"
         }
     }
     fn cause(&self) -> Option<&error::Error> {

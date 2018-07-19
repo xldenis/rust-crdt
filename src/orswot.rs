@@ -261,13 +261,11 @@ impl<M: Member, A: Actor> Orswot<M, A> {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
-    extern crate quickcheck;
-
-    use self::quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
     use super::*;
+    extern crate rand;
+
+    use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
     use VClock;
-    use std::collections::BTreeSet;
 
     const ACTOR_MAX: u16 = 11;
 

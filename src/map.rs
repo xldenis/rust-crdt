@@ -327,9 +327,10 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 mod tests {
     use super::*;
 
+    use quickcheck::{Arbitrary, Gen, TestResult};
+
     use lwwreg::LWWReg;
 
-    use quickcheck::{Arbitrary, Gen, TestResult};
     type TestActor = u8;
     type TestKey = u8;
     type TestVal = LWWReg<u8, (u64, TestActor)>;
@@ -790,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn test_idempotent_quickcheck_bug() {
+    fn test_idempotent_quickcheck_bug1() {
         let ops = vec![
             Op::Up {
                 clock: vec![(21, 5)].into_iter().collect(),
@@ -818,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dunno() {
+    fn test_idempotent_quickcheck_bug2() {
         let mut m: TestMap = Map::new();
         let res = m.apply(&Op::Up {
             clock: vec![(32, 5)].into_iter().collect(),
