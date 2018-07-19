@@ -27,14 +27,24 @@ pub struct Orswot<M: Member, A: Actor> {
     deferred: BTreeMap<VClock<A>, BTreeSet<M>>,
 }
 
+/// Op's define a mutation to a Orswot, Op's must be replayed in the exact order
+/// they were produced to guarantee convergence.
+///
+/// Op's are idempotent, that is, applying an Op twice will not have an effect
 #[derive(Debug, Clone)]
 pub enum Op<M: Member, A: Actor> {
+    /// Add a member to the set
     Add {
-        clock: VClock<A>, // TAI: do we need a full vclock here? or is a dot enough
+        /// Add operation context
+        clock: VClock<A>,
+        /// Member to add
         member: M
     },
+    /// Remove a member from the set
     Rm {
+        /// Remove operation context
         clock: VClock<A>,
+        /// Member to remove
         member: M
     }
 }
@@ -52,11 +62,11 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
         match op.clone() {
             Op::Add { clock, member } => {
-                // TODO: this is kinda lazy.. improve this 
+                // TODO: this is kinda lazy.. improve this
                 let mut set = self.clone();
                 set.clock.merge(&clock);
                 set.entries.insert(member, clock);
-                self.merge(&set);
+                self.merge(&set)?;
             },
             Op::Rm { clock, member } => {
                 self.remove_with_context(member, &clock);
@@ -681,8 +691,8 @@ mod tests {
         assert_eq!(m2.get(&101).unwrap().value(), vec![1, 2]);
 
         let snapshot = m1.clone();
-        m1.merge(&m2);
-        m2.merge(&m1);
+        assert!(m1.merge(&m2).is_ok());
+        assert!(m2.merge(&snapshot).is_ok());
 
         assert_eq!(m1, m2);
         assert_eq!(m1.get(&101).unwrap().value(), vec![2]);

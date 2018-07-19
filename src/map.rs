@@ -6,13 +6,18 @@ use traits::{Causal, CvRDT, CmRDT};
 use vclock::{VClock, Actor};
 use std::collections::BTreeMap;
 
+/// Key Trait alias to reduce redundancy in type decl.
 pub trait Key: Ord + Clone + Send + Serialize + DeserializeOwned {}
 impl<T: Ord + Clone + Send + Serialize + DeserializeOwned> Key for T {}
 
-pub trait Val<A: Actor>: Default + Clone + Send + Serialize + DeserializeOwned + Causal<A> + CmRDT + CvRDT {}
+/// Val Trait alias to reduce redundancy in type decl.
+pub trait Val<A: Actor>
+    : Default + Clone + Send + Serialize + DeserializeOwned
+      + Causal<A> + CmRDT + CvRDT {}
 impl<A, T> Val<A> for T where
     A: Actor,
-    T: Default + Clone + Send + Serialize + DeserializeOwned + Causal<A> + CmRDT + CvRDT
+    T: Default + Clone + Send + Serialize + DeserializeOwned
+       + Causal<A> + CmRDT + CvRDT
 {}
 
 /// The Map CRDT - Supports Composition of CRDT's.
@@ -106,18 +111,25 @@ struct Entry<V: Val<A>, A: Actor> {
     val: V
 }
 
-/// TODO
+/// Operations which can be applied to the Map CRDT
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op<K: Key, V: Val<A>, A: Actor> {
     /// No change to the CRDT
     Nop,
+    /// Remove a key from the map
     Rm {
+        /// Remove context
         clock: VClock<A>,
+        /// Key to remove
         key: K
     },
+    /// Update an entry in the map
     Up {
+        /// Update context
         clock: VClock<A>,
+        /// Key of the value to update
         key: K,
+        /// The operation to apply on the value under `key`
         op: V::Op
     }
 }
@@ -128,7 +140,7 @@ impl<K: Key, V: Val<A>, A: Actor> Default for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {    
+impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     fn truncate(&mut self, clock: &VClock<A>) {
         let mut to_remove: Vec<K> = Vec::new();
         for (key, entry) in self.entries.iter_mut() {
@@ -315,7 +327,6 @@ mod tests {
     use super::*;
 
     use lwwreg::LWWReg;
-    use orswot::Orswot;
 
     use quickcheck::{Arbitrary, Gen, TestResult};
     type TestActor = u8;
@@ -324,7 +335,7 @@ mod tests {
     type TestOp = Op<TestKey, Map<TestKey, TestVal, TestActor>, TestActor>;
     type TestMap =  Map<TestKey, Map<TestKey, TestVal, TestActor>, TestActor>;
 
-    // Rust doesn't let us impl on types defined outside our trait ie. 'Vec' so we wrap.
+    // We can't impl on types outside this module ie. '(u8, Vec<_>)' so we wrap.
     #[derive(Debug, Clone)]
     struct OpVec(TestActor, Vec<TestOp>);
 
@@ -334,7 +345,7 @@ mod tests {
         A: Actor + Arbitrary,
         V::Op: Arbitrary
     {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        fn arbitrary<G: Gen>(_g: &mut G) -> Self {
             /// we don't generate arbitrary Op's in isolation
             /// since they are highly likely to conflict with
             /// other ops, insted we generate OpVec's.
@@ -606,7 +617,7 @@ mod tests {
         inner_map.update(110, |r| Some(r), 1);
         assert_eq!(m.get(&101), Some(&inner_map));
         assert_eq!(m.len(), 1);
-        
+
         m.rm(101, 1);
         assert_eq!(m.get(&101), None);
         assert_eq!(m.len(), 0);
@@ -621,7 +632,7 @@ mod tests {
                 let op = map.update(
                     110,
                     |mut reg| {
-                        reg.update(32, (0, 74));
+                        reg.update(32, (0, 74)).unwrap();
                         Some(reg)
                     },
                     74
@@ -641,7 +652,7 @@ mod tests {
                 let op = map.update(
                     220,
                     |mut reg| {
-                        reg.update(5, (0, 37));
+                        reg.update(5, (0, 37)).unwrap();
                         Some(reg)
                     },
                     37
@@ -667,7 +678,7 @@ mod tests {
     fn test_updating_with_current_clock_should_be_a_nop() {
         let mut m1: TestMap = Map::new();
 
-        m1.apply(&Op::Up {
+        let res = m1.apply(&Op::Up {
             clock: VClock::new(),
             key: 0,
             op: Op::Up {
@@ -678,7 +689,9 @@ mod tests {
                     dot: (0, 0)
                 }
             }
-        }).unwrap();
+        });
+
+        assert!(res.is_ok());
 
         // the update should have been ignored
         assert_eq!(m1, Map::new());
@@ -694,14 +707,14 @@ mod tests {
         let op2 = m2.update(102, |_| Some(Op::Nop), 61);
         let mut m1_clone = m1.clone();
         let mut m2_clone = m2.clone();
-        
-        m1_clone.merge(&m2);
-        m2_clone.merge(&m1);
+
+        assert!(m1_clone.merge(&m2).is_ok());
+        assert!(m2_clone.merge(&m1).is_ok());
 
         assert_eq!(m1_clone, m2_clone);
 
-        m1.apply(&op2);
-        m2.apply(&op1);
+        assert!(m1.apply(&op2).is_ok());
+        assert!(m2.apply(&op1).is_ok());
 
         assert_eq!(m1, m2);
 
@@ -710,7 +723,6 @@ mod tests {
         // we bias towards adds
         assert!(m1.get(&102).is_some());
     }
-    
 
     #[test]
     fn test_order_of_remove_and_update_does_not_matter() {
@@ -722,33 +734,82 @@ mod tests {
 
         let mut m1_clone = m1.clone();
         let mut m2_clone = m2.clone();
-        
-        m1_clone.merge(&m2);
-        m2_clone.merge(&m1);
+
+        assert!(m1_clone.merge(&m2).is_ok());
+        assert!(m2_clone.merge(&m1).is_ok());
 
         assert_eq!(m1_clone, m2_clone);
 
-        m1.apply(&op2);
-        m2.apply(&op1);
+        assert!(m1.apply(&op2).is_ok());
+        assert!(m2.apply(&op1).is_ok());
 
         assert_eq!(m1, m2);
 
         assert_eq!(m1, m1_clone);
     }
 
+    #[test]
     fn test_commute_dunno() {
-        // OpVec(45, [Rm { clock: VClock { dots: {45: 1} }, key: 0 }, Up { clock: VClock { dots: {45: 2} }, key: 0, op: Up { clock: VClock { dots: {45: 1} }, key: 0, op: LWWReg { val: 0, dot: (0, 0) } } }])
-        // OpVec(28, [])
+        let ops = vec![
+            Op::Rm {
+                clock: vec![(45, 1)].into_iter().collect(),
+                key: 0
+            },
+            Op::Up {
+                clock: vec![(45, 2)].into_iter().collect(),
+                key: 0,
+                op: Op::Up {
+                    clock: vec![(45, 1)].into_iter().collect(),
+                    key: 0,
+                    op: LWWReg { val: 0, dot: (0, 0) }
+                }
+            }
+        ];
+
+        let mut m = Map::new();
+        apply_ops(&mut m, &ops);
+
+        let m_snapshot = m.clone();
+
+        let mut empty_m = Map::new();
+        assert!(m.merge(&empty_m).is_ok());
+        assert!(empty_m.merge(&m_snapshot).is_ok());
+
+        assert_eq!(m, empty_m);
     }
 
+    #[test]
     fn test_idempotent_dunno() {
-        // OpVec(21, [Up { clock: VClock { dots: {21: 5} }, key: 0, op: Nop }, Up { clock: VClock { dots: {21: 6} }, key: 1, op: Up { clock: VClock { dots: {21: 1} }, key: 0, op: LWWReg { val: 0, dot: (0, 0) } } }]))
+        let ops = vec![
+            Op::Up {
+                clock: vec![(21, 5)].into_iter().collect(),
+                key: 0,
+                op: Op::Nop
+            },
+            Op::Up {
+                clock: vec![(21, 6)].into_iter().collect(),
+                key: 1,
+                op: Op::Up {
+                    clock: vec![(21, 1)].into_iter().collect(),
+                    key: 0,
+                    op: LWWReg { val: 0, dot: (0, 0) }
+                }
+            }
+        ];
+
+        let mut m = Map::new();
+        apply_ops(&mut m, &ops);
+
+        let m_snapshot = m.clone();
+        assert!(m.merge(&m_snapshot).is_ok());
+
+        assert_eq!(m, m_snapshot);
     }
 
     #[test]
     fn test_dunno() {
         let mut m: TestMap = Map::new();
-        m.apply(&Op::Up {
+        let res = m.apply(&Op::Up {
             clock: vec![(32, 5)].into_iter().collect(),
             key: 0,
             op: Op::Up {
@@ -760,6 +821,8 @@ mod tests {
                 }
             }
         });
+
+        assert!(res.is_ok());
 
         let m_snapshot = m.clone();
 
@@ -793,7 +856,7 @@ mod tests {
             apply_ops(&mut m2, &ops2.1);
 
             let mut m_merged = m1.clone();
-            m_merged.merge(&m2);
+            assert!(m_merged.merge(&m2).is_ok());
 
             apply_ops(&mut m1, &ops2.1);
             apply_ops(&mut m2, &ops1.1);

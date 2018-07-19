@@ -3,6 +3,7 @@ use vclock::{VClock, Actor};
 
 /// State based CRDT's replicate by transmitting the entire CRDT state
 pub trait CvRDT {
+    /// Merge the given CRDT into the current CRDT.
     fn merge(&mut self, other: &Self) -> Result<()>;
 }
 

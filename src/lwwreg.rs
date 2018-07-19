@@ -70,7 +70,6 @@ impl<V: Val, D: Dot> CvRDT for LWWReg<V, D> {
             self.dot = other.dot.clone();
             Ok(())
         } else if other.dot == self.dot && other.val != self.val {
-            panic!("no good!"); // TODO: remove this
             Err(Error::ConflictingDot)
         } else {
             Ok(())

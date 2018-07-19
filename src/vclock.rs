@@ -25,14 +25,6 @@ pub type Counter = u64;
 pub trait Actor: Ord + Clone + Send + Serialize + DeserializeOwned {}
 impl<A: Ord + Clone + Send + Serialize + DeserializeOwned> Actor for A {}
 
-/// A dot represents the current counter of an actor
-#[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Dot<A: Actor> {
-    pub actor: A,
-    pub counter: Counter
-}
-
 /// A `VClock` is a standard vector clock.
 /// It contains a set of "actors" and associated counters.
 /// When a particular actor witnesses a mutation, their associated
@@ -339,20 +331,12 @@ impl<A: Actor> std::iter::IntoIterator for VClock<A> {
     }
 }
 
-impl<A: Actor> From<Dot<A>> for VClock<A> {
-    fn from(dot: Dot<A>) -> VClock<A> {
-        let mut clock = VClock::new();
-        clock.witness(dot.actor, dot.counter).unwrap(); // this should not fail!
-        clock
-    }
-}
-
 impl<A: Actor> std::iter::FromIterator<(A, u64)> for VClock<A> {
     fn from_iter<I: IntoIterator<Item=(A, u64)>>(iter: I) -> Self {
         let mut clock = Self::new();
 
         for (actor, counter) in iter {
-            clock.witness(actor, counter);
+            let _ = clock.witness(actor, counter);
         }
 
         clock
@@ -372,7 +356,7 @@ mod tests {
             let mut v = VClock::new();
             for _ in 0..g.gen_range(0, 7) {
                 let witness = A::arbitrary(g);
-                v.witness(witness, g.gen_range(1, 7));
+                let _ = v.witness(witness, g.gen_range(1, 7));
             }
             v
         }
