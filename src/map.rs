@@ -27,6 +27,7 @@ impl<A, T> Val<A> for T where
 ///
 /// ``` rust
 /// use crdts::{Map, Orswot};
+/// use crdts::CvRDT;
 ///
 /// type Actor = u64;
 /// type Friend = String;
@@ -36,10 +37,9 @@ impl<A, T> Val<A> for T where
 ///
 /// friend_map.update(
 ///     "alice".to_string(),
-///     |friend_set| {
-///         let mut friend_set = friend_set.unwrap_or(Orswot::default());
-///         friend_set.add("bob".to_string(), first_actor_id);
-///         Some(friend_set)
+///     |mut friend_set| {
+///         let op = friend_set.add("bob".to_string(), first_actor_id);
+///         Some(op)
 ///     },
 ///     first_actor_id
 /// );
@@ -54,17 +54,15 @@ impl<A, T> Val<A> for T where
 /// friend_map.rm("alice".to_string(), first_actor_id);
 /// second_friend_map.update(
 ///     "alice".to_string(),
-///     |friend_set| {
-///         let mut friend_set = friend_set.unwrap_or(Orswot::default());
-///         friend_set.add("clyde".to_string(), second_actor_id);
-///         Some(friend_set)
+///     |mut friend_set| {
+///         Some(friend_set.add("clyde".to_string(), second_actor_id))
 ///     },
 ///     second_actor_id
 /// );
 ///
 /// // On merge, we should see that the "alice" key is in the map but the
-/// // "alice" friend set only contains clyde. This, in essence, is the
-/// // reset-remove semantics, all changes that the removing replica saw are
+/// // "alice" friend set only contains clyde. This is the reset-remove
+/// // semantics, all changes that the removing replica saw are
 /// // gone, but changes not seen by the removing replica are kept.
 ///
 /// friend_map.merge(&second_friend_map).unwrap();
@@ -93,24 +91,16 @@ struct Entry<V: Val<A>, A: Actor> {
     // where only one map has this entry.
     //
     // e.g. say replica A has key `"user_32"` but replica B does not. We need to
-    // decide whether replica B has processed a `rm("user_32")` operation
-    // and replica A has not or replica A has processed a put("key")
+    // decide whether replica B has processed an `rm("user_32")` operation
+    // and replica A has not or replica A has processed a update("key")
     // operation which has not been seen by replica B yet.
     //
     // This conflict can be resolved by comparing replica B's Map.clock to the
     // the "user_32" Entry clock in replica A.
     // If B's clock is >=  "user_32"'s clock, then we know that B has
-    // seen this entry and removed it, otherwise B has not received the put
+    // seen this entry and removed it, otherwise B has not received the update
     // operation so we keep the key.
     clock: VClock<A>,
-
-    // This clock marks the most recent time that this entry did not exist.
-    // It acts a lower clock bound for all mutations to the nested CRDT. Changes
-    // which happened prior to this clock should be discarded.
-    //
-    // The birth clock is reset everytime a put or a remove with a
-    // concurrent update happens.
-    birth_clock: VClock<A>,
 
     // The nested CRDT
     val: V
@@ -121,11 +111,6 @@ struct Entry<V: Val<A>, A: Actor> {
 pub enum Op<K: Key, V: Val<A>, A: Actor> {
     /// No change to the CRDT
     Nop,
-//    Put {
-//        clock: VClock<A>,
-//        key: K,
-//        val: V
-//    },
     Rm {
         clock: VClock<A>,
         key: K
@@ -147,8 +132,8 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     fn truncate(&mut self, clock: &VClock<A>) {
         let mut to_remove: Vec<K> = Vec::new();
         for (key, entry) in self.entries.iter_mut() {
-            entry.birth_clock.merge(&clock);
-            if entry.birth_clock >= entry.clock {
+            entry.clock.subtract(&clock);
+            if entry.clock.is_empty() {
                 to_remove.push(key.clone());
             } else {
                 entry.val.truncate(&clock);
@@ -158,6 +143,8 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
         for key in to_remove {
             self.entries.remove(&key);
         }
+
+        self.clock.subtract(&clock);
     }
 }
 
@@ -167,38 +154,18 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
         match op.clone() {
             Op::Nop => {/* do nothing */},
-//            Op::Put { clock, key, val } => {
-//                if !(self.clock > clock.clone()) {
-//                    self.clock.merge(&clock);
-//                    let entry_opt = self.entries.remove(&key);
-//                    let entry = if let Some(mut entry) = entry_opt {
-//                        // the entry already exists, first truncate than merge
-//                        entry.val.truncate(&clock);
-//                        entry.val.merge(&val).unwrap(); // TODO: ?
-//
-//                        entry.clock.merge(&clock);
-//                        entry.birth_clock.merge(&clock);
-//
-//                        entry
-//                    } else {
-//                        Entry {
-//                            clock: clock.clone(),
-//                            birth_clock: clock.clone(),
-//                            val: val.clone()
-//                        }
-//                    };
-//                    self.entries.insert(key.clone(), entry);
-//                }
-//            },
             Op::Rm { clock, key } => {
                 // TODO: grep for truncates with cloned clock, we changed the api
                 //       to take a reference
                 if !(self.clock >= clock) {
                     if let Some(mut entry) = self.entries.remove(&key) {
-                        entry.birth_clock.merge(&clock);
-                        if !(entry.birth_clock >= entry.clock) {
+                        entry.clock.subtract(&clock);
+                        if !entry.clock.is_empty() {
                             entry.val.truncate(&clock);
                             self.entries.insert(key, entry);
+                        } else {
+                            // the entries clock has been dominated by the
+                            // remove op clock, so we remove (already did)
                         }
                     }
                     self.clock.merge(&clock);
@@ -209,14 +176,12 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
                     let mut entry = self.entries.remove(&key)
                         .unwrap_or_else(|| Entry {
                             clock: clock.clone(),
-                            birth_clock: VClock::new(),
                             val: V::default()
                         });
 
                     entry.clock.merge(&clock);
                     entry.val.apply(&op)?;
                     self.entries.insert(key.clone(), entry);
-
                     self.clock.merge(&clock);
                 }
             }
@@ -231,18 +196,12 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
             // TODO(david) avoid this remove here with entries.get_mut?
             if let Some(mut existing) = self.entries.remove(&key) {
                 existing.clock.merge(&entry.clock);
-                existing.birth_clock.merge(&entry.birth_clock);
-                existing.val.merge(&entry.val).unwrap(); // TODO: ?
-
-                // TODO(david) this extra truncate is most likely not required
-                //             but it keeps the merge code consistent, do some
-                //             benchmarks to see how this impacts performance
-                existing.val.truncate(&existing.birth_clock);
+                existing.val.merge(&entry.val).unwrap(); // TODO: unwrap
                 self.entries.insert(key.clone(), existing);
             } else {
                 // we don't have this entry:
                 //   is this because we removed it?
-                if self.clock >= entry.clock {
+                if self.clock > entry.clock {
                     // we removed this entry! don't add it back to our map
                     continue;
                 }
@@ -251,13 +210,11 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
                 // other map has concurrently mutated it. (reset-remove)
                 let mut new_entry = entry.clone();
 
-                // We merge our map clock into the birth clock to mark that at
-                // this time we knew that this entry did not exist in our set
-                new_entry.birth_clock.merge(&self.clock);
-
-                // This next merge will remove all changes that happened at or
-                // before the updated birth_clock
-                new_entry.val.truncate(&new_entry.birth_clock);
+                let truncate_clock: VClock<A> = self.clock.clone()
+                    .into_iter()
+                    .filter(|(a, c)| c > &new_entry.clock.get(&a))
+                    .collect();
+                new_entry.val.truncate(&truncate_clock);
                 self.entries.insert(key.clone(), new_entry);
             }
         }
@@ -275,8 +232,11 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
             } else if other.clock.concurrent(&entry.clock) {
                 // other has removed this entry but we modified it concurrently
                 // (reset-remove)
-                entry.birth_clock.merge(&other.clock);
-                entry.val.truncate(&entry.birth_clock.clone());
+                let truncate_clock: VClock<A> = other.clock.clone()
+                    .into_iter()
+                    .filter(|(a, c)| c > &entry.clock.get(&a))
+                    .collect();
+                entry.val.truncate(&truncate_clock);
             } else {
                 // our entry clock is ahead of the other's clock meaning we have
                 // seen everything the other has seen. We have nothing to do.
@@ -311,23 +271,6 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         self.entries.get(&key)
             .map(|map_entry| &map_entry.val)
     }
-
-//    /// Put a value under some key.
-//    /// Note:
-//    ///   put's destroy causality! think of it as the equivalent of removing
-//    ///   and adding a new element.
-//    ///
-//    ///   If you want to update a crdt while preserving causal history, consider
-//    ///   using `Map::update()`.
-//    pub fn put(&mut self, key: K, mut val: V, actor: A) -> Op<K, V, A> {
-//        val.truncate(&self.clock);
-//        let mut clock = self.clock.clone();
-//        clock.increment(actor.clone());
-//        let op = Op::Put { clock, key, val };
-//
-//        self.apply(&op).unwrap(); // this must not fail
-//        op
-//    }
 
     /// Update a value under some key, if the key is not present in the map,
     /// the updater will be given `None`, otherwise `Some(val)` is given.
@@ -403,40 +346,6 @@ mod tests {
 
             match self.clone() {
                 Op::Nop => {/* shrink to nothing */},
-//                Op::Put { clock, key, val } => {
-//                    shrunk.extend(
-//                        clock.shrink()
-//                            .map(|c| {
-//                                let mut shrunk_val = val.clone();
-//                                shrunk_val.truncate(&c);
-//                                Op::Put {
-//                                    clock: c,
-//                                    key: key.clone(),
-//                                    val: shrunk_val
-//                                }
-//                            }).collect::<Vec<Self>>()
-//                    );
-//
-//                    shrunk.extend(
-//                        key.shrink()
-//                            .map(|k| Op::Put {
-//                                clock: clock.clone(),
-//                                key: k,
-//                                val: val.clone()
-//                            })
-//                            .collect::<Vec<Self>>()
-//                    );
-//
-//                    shrunk.extend(
-//                        val.shrink()
-//                            .map(|v| Op::Put {
-//                                clock: clock.clone(),
-//                                key: key.clone(),
-//                                val: v
-//                            })
-//                            .collect::<Vec<Self>>()
-//                    );
-//                },
                 Op::Rm { clock, key } => {
                     shrunk.extend(
                         clock.shrink()
@@ -559,31 +468,19 @@ mod tests {
             for _ in 0..num_ops {
                 let die_roll: u8 = g.gen();
                 let key = g.gen();
-                let op = match die_roll % 4 {
-//                    0 => {
-//                        // put
-//                        let val = Map::arbitrary(g);
-//                        map.put(key, val, actor.clone())
-//                    },
-                    1 => {
+                let op = match die_roll % 3 {
+                    0 => {
                         // update inner map
                         map.update(key, |mut inner_map| {
                             let die_roll: u8 = g.gen();
                             let key = g.gen();
-                            match die_roll % 5 {
-//                                0 => {
-//                                    // put
-//                                    let mut val = TestVal::arbitrary(g);
-//                                    val.dot.1 = actor.clone();
-//                                    let op = inner_map.put(key, val, actor.clone());
-//                                    Some(op)
-//                                },
-                                1 => {
+                            match die_roll % 4 {
+                                0 => {
                                     // update key rm
                                     let op = inner_map.update(key, |_| None, actor.clone());
                                     Some(op)
                                 },
-                                2 => {
+                                1 => {
                                     // update key and val update
                                     let op = inner_map.update(key, |mut reg| {
                                         reg.update(g.gen(), (g.gen(), actor.clone())).unwrap();
@@ -591,7 +488,7 @@ mod tests {
                                     }, actor.clone());
                                     Some(op)
                                 },
-                                3 => {
+                                2 => {
                                     // inner rm
                                     let op = inner_map.rm(key, actor.clone());
                                     Some(op)
@@ -603,7 +500,7 @@ mod tests {
                             }
                         }, actor.clone())
                     },
-                    2 => {
+                    1 => {
                         // rm
                         let key = g.gen();
                         map.rm(key, actor.clone())
@@ -652,20 +549,11 @@ mod tests {
         m.clock.increment(1);
         m.entries.insert(0, Entry {
             clock: m.clock.clone(),
-            birth_clock: VClock::new(),
             val: Map::default()
         });
 
         assert_eq!(m.get(&0), Some(&Map::new()));
     }
-
-//    #[test]
-//    fn test_put() {
-//        let mut m: TestMap = Map::new();
-//        m.put(32, Map::new(), 1);
-//        assert_eq!(m.get(&32), Some(&Map::new()));
-//        assert_eq!(m.len(), 1);
-//    }
 
     #[test]
     fn test_update() {
@@ -726,42 +614,53 @@ mod tests {
 
     #[test]
     fn test_reset_remove_semantics() {
-        let mut m1: Map<String, Orswot<u8, String>, String> = Map::new();
+        let mut m1 = TestMap::new();
         m1.update(
-            "x".into(),
-            |mut x_set| {
-                let op = x_set.add(1, "a1".into());
+            101,
+            |mut map| {
+                let op = map.update(
+                    110,
+                    |mut reg| {
+                        reg.update(32, (0, 74));
+                        Some(reg)
+                    },
+                    74
+                );
                 Some(op)
             },
-            "a1".into()
+            74
         );
 
         let mut m2 = m1.clone();
 
-        m1.rm("x".into(), "a1".into());
+        m1.rm(101, 74);
 
         m2.update(
-            "x".into(),
-            |mut x_set| {
-                let op = x_set.add(2, "a2".into());
+            101,
+            |mut map| {
+                let op = map.update(
+                    220,
+                    |mut reg| {
+                        reg.update(5, (0, 37));
+                        Some(reg)
+                    },
+                    37
+                );
                 Some(op)
             },
-            "a2".into()
+            37
         );
 
-        println!("m1 {:?}", m1);
-        println!("m2 {:?}", m2);
         let m1_snapshot = m1.clone();
         assert!(m1.merge(&m2).is_ok());
         assert!(m2.merge(&m1_snapshot).is_ok());
 
-        println!("m1 {:?}", m1);
-        println!("m2 {:?}", m2);
-
         assert_eq!(m1, m2);
 
-        let x_set = m1.get(&"x".into()).unwrap();
-        assert_eq!(x_set.value(), vec![2]);
+        let inner_map = m1.get(&101).unwrap();
+        assert_eq!(inner_map.get(&220), Some(&LWWReg { val: 5, dot: (0, 37) }));
+        assert_eq!(inner_map.get(&110), None);
+        assert_eq!(inner_map.len(), 1);
     }
 
     #[test]
@@ -814,11 +713,9 @@ mod tests {
     
 
     #[test]
-    fn test_birth_clocks_are_set_on_update() {
+    fn test_order_of_remove_and_update_does_not_matter() {
         let mut m1 = TestMap::new();
         let mut m2 = TestMap::new();
-        // OpVec(35, [Up { clock: VClock { dots: {35: 2} }, key: 0, op: Nop }])
-        // OpVec(47, [Rm { clock: VClock { dots: {47: 1} }, key: 1 }])
 
         let op1 = m1.update(0, |_| Some(Op::Nop), 35);
         let op2 = m2.rm(1, 47);
@@ -872,7 +769,7 @@ mod tests {
         // m ^ m = m
         assert_eq!(m, m_snapshot);
     }
-    
+
     fn apply_ops(map: &mut TestMap, ops: &[TestOp]) {
         for op in ops.iter() {
             map.apply(op).unwrap()
@@ -881,6 +778,28 @@ mod tests {
 
     quickcheck! {
         // TODO: add test to show equivalence of merge and Op exchange
+        fn prop_op_exchange_same_as_merge(
+            ops1: OpVec,
+            ops2: OpVec
+        ) -> TestResult {
+            if ops1.0 == ops2.0 {
+                return TestResult::discard();
+            }
+
+            let mut m1: TestMap = Map::new();
+            let mut m2: TestMap = Map::new();
+
+            apply_ops(&mut m1, &ops1.1);
+            apply_ops(&mut m2, &ops2.1);
+
+            let mut m_merged = m1.clone();
+            m_merged.merge(&m2);
+
+            apply_ops(&mut m1, &ops2.1);
+            apply_ops(&mut m2, &ops1.1);
+
+            TestResult::from_bool(m1 == m_merged && m2 == m_merged)
+        }
 
         fn prop_exchange_ops_converges(ops1: OpVec, ops2: OpVec) -> TestResult {
             if ops1.0 == ops2.0 {
@@ -892,13 +811,13 @@ mod tests {
 
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
-            
+
             apply_ops(&mut m1, &ops2.1);
             apply_ops(&mut m2, &ops1.1);
 
             TestResult::from_bool(m1 == m2)
         }
-        
+
         fn prop_truncate_with_empty_vclock_is_nop(ops: OpVec) -> bool {
             let mut m: TestMap = Map::new();
             apply_ops(&mut m, &ops.1);
@@ -909,7 +828,11 @@ mod tests {
             m == m_snapshot
         }
 
-        fn prop_associative(ops1: OpVec, ops2: OpVec, ops3: OpVec) -> TestResult {
+        fn prop_associative(
+            ops1: OpVec,
+            ops2: OpVec,
+            ops3: OpVec
+        ) -> TestResult {
             if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
                 return TestResult::discard();
             }
@@ -940,7 +863,6 @@ mod tests {
             if ops1.0 == ops2.0 {
                 return TestResult::discard();
             }
-            // TODO: this is not testing what we want. we should take a snapshot of m1 before the first merge
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
 

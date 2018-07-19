@@ -137,7 +137,7 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
 
 impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
     fn truncate(&mut self, clock: &VClock<A>) {
-        unimplemented!();
+        // TODO: this is kinda lazy, improve this
         let mut empty_set = Orswot::new();
         empty_set.clock = clock.clone();
 
@@ -164,7 +164,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     ///
     /// ```
     /// use crdts::Orswot;
-    /// use crdts::traits::ComposableCrdt;
+    /// use crdts::CvRDT;
     ///
     /// let (mut a, mut b) = (Orswot::new(), Orswot::new());
     /// a.add(1, 1);
@@ -663,5 +663,28 @@ mod tests {
         let bctx = b.precondition_context();
         a.remove_with_context("A".to_string(), &bctx);
         assert!(a.value().is_empty());
+    }
+
+    #[test]
+    fn test_reset_remove_semantics() {
+        use map::Map;
+        let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
+
+        m1.update(101, |mut set| Some(set.add(1, 75)), 75);
+
+        let mut m2 = m1.clone();
+
+        m1.rm(101, 75);
+        m2.update(101, |mut set| Some(set.add(2, 93)), 93);
+
+        assert_eq!(m1.get(&101), None);
+        assert_eq!(m2.get(&101).unwrap().value(), vec![1, 2]);
+
+        let snapshot = m1.clone();
+        m1.merge(&m2);
+        m2.merge(&m1);
+
+        assert_eq!(m1, m2);
+        assert_eq!(m1.get(&101).unwrap().value(), vec![2]);
     }
 }

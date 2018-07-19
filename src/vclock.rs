@@ -240,11 +240,11 @@ impl<A: Actor> VClock<A> {
     }
 
     /// Return the associated counter for this actor.
-    /// If all actors not in the vclock have an implied count of 0
+    /// All actors not in the vclock have an implied count of 0
     pub fn get(&self, actor: &A) -> Counter {
         self.dots.get(actor)
             .map(|counter| *counter)
-            .unwrap_or(0u64)
+            .unwrap_or(0)
     }
 
     /// Returns `true` if this vector clock contains nothing.
@@ -318,6 +318,15 @@ impl<A: Actor> VClock<A> {
     // fn into_iter(self) -> impl Iterator<Item=(A, u64)> {
     //     self.dots.into_iter()
     // }
+
+    /// Remove's actors with descendent dots in the given VClock
+    pub fn subtract(&mut self, other: &VClock<A>) {
+        for (actor, counter) in other.iter() {
+            if counter >= &self.get(&actor) {
+                self.dots.remove(&actor);
+            }
+        }
+    }
 }
 
 impl<A: Actor> std::iter::IntoIterator for VClock<A> {
@@ -416,6 +425,29 @@ mod tests {
 
             clock_truncated == clock
         }
+
+        fn prop_subtract_with_empty_is_nop(clock: VClock<u8>) -> bool {
+            let mut subbed  = clock.clone();
+            subbed.subtract(&VClock::new());
+            subbed == clock
+        }
+
+        fn prop_subtract_self_is_empty(clock: VClock<u8>) -> bool {
+            let mut subbed  = clock.clone();
+            subbed.subtract(&clock);
+            subbed == VClock::new()
+        }
+    }
+
+    #[test]
+    fn test_subtract() {
+        let mut a: VClock<u8> = vec![(1, 4), (2, 3), (5, 9)].into_iter().collect();
+        let     b: VClock<u8> = vec![(1, 5), (2, 3), (5, 8)].into_iter().collect();
+        let expected: VClock<u8> = vec![(5, 9)].into_iter().collect();
+
+        a.subtract(&b);
+
+        assert_eq!(a, expected);
     }
 
     #[test]
