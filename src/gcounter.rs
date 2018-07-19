@@ -1,6 +1,6 @@
-use super::*;
-
 use std::cmp::Ordering;
+
+use vclock::{VClock, Actor};
 
 /// `GCounter` is a grow-only witnessed counter.
 ///
@@ -18,31 +18,31 @@ use std::cmp::Ordering;
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct GCounter<A: Ord + Clone + Serialize + DeserializeOwned> {
+pub struct GCounter<A: Actor> {
     inner: VClock<A>,
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> Ord for GCounter<A> {
+impl<A: Actor> Ord for GCounter<A> {
     fn cmp(&self, other: &GCounter<A>) -> Ordering {
         let (c, oc) = (self.value(), other.value());
         c.cmp(&oc)
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd for GCounter<A> {
+impl<A: Actor> PartialOrd for GCounter<A> {
     fn partial_cmp(&self, other: &GCounter<A>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialEq for GCounter<A> {
+impl<A: Actor> PartialEq for GCounter<A> {
     fn eq(&self, other: &GCounter<A>) -> bool {
         let (c, oc) = (self.value(), other.value());
         c == oc
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> GCounter<A> {
+impl<A: Actor> GCounter<A> {
     /// Produces a new `GCounter`.
     pub fn new() -> GCounter<A> {
         GCounter { inner: VClock::new() }

@@ -10,42 +10,63 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use error::Result;
-use traits::ComposableCrdt;
-use vclock::VClock;
+use traits::{CvRDT, CmRDT, Causal};
+use vclock::{VClock, Actor};
+
+/// Trait bound alias for members in a set
+pub trait Member: Ord + Clone + Send + Serialize + DeserializeOwned {}
+impl<T: Ord + Clone + Send + Serialize + DeserializeOwned> Member for T {}
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Orswot<
-    Member: Ord + Clone + Serialize + DeserializeOwned,
-    Actor: Ord + Clone + Serialize + DeserializeOwned,
-> {
-    clock: VClock<Actor>,
-    entries: BTreeMap<Member, VClock<Actor>>,
-    deferred: BTreeMap<VClock<Actor>, BTreeSet<Member>>,
+pub struct Orswot<M: Member, A: Actor> {
+    clock: VClock<A>,
+    entries: BTreeMap<M, VClock<A>>,
+    deferred: BTreeMap<VClock<A>, BTreeSet<M>>,
 }
 
-impl<Member, Actor> Default for Orswot<Member, Actor> where
-    Member: Ord + Clone + Serialize + DeserializeOwned,
-    Actor: Ord + Clone + Serialize + DeserializeOwned
-{
+#[derive(Debug, Clone)]
+pub enum Op<M: Member, A: Actor> {
+    Add {
+        clock: VClock<A>, // TAI: do we need a full vclock here? or is a dot enough
+        member: M
+    },
+    Rm {
+        clock: VClock<A>,
+        member: M
+    }
+}
+
+impl<M: Member, A: Actor> Default for Orswot<M, A> {
     fn default() -> Self {
         Orswot::new()
     }
 }
 
 
-impl<Member, Actor> ComposableCrdt<Actor> for Orswot<Member, Actor> where
-    Member: Ord + Clone + Serialize + DeserializeOwned,
-    Actor: Ord + Clone + Serialize + DeserializeOwned
-{
-    fn default_with_clock(clock: VClock<Actor>) -> Self{
-        let mut default = Orswot::default();
-        default.clock = clock;
-        default
-    }
+impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
+    type Op = Op<M, A>;
 
+    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+        match op.clone() {
+            Op::Add { clock, member } => {
+                // TODO: this is kinda lazy.. improve this 
+                let mut set = self.clone();
+                set.clock.merge(&clock);
+                set.entries.insert(member, clock);
+                self.merge(&set);
+            },
+            Op::Rm { clock, member } => {
+                self.remove_with_context(member, &clock);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
     /// Merge combines another `Orswot` with this one.
     fn merge(&mut self, other: &Self) -> Result<()> {
         let mut other_remaining = other.entries.clone();
@@ -114,12 +135,20 @@ impl<Member, Actor> ComposableCrdt<Actor> for Orswot<Member, Actor> where
     }
 }
 
-impl<
-    Member: Ord + Clone + Serialize + DeserializeOwned,
-    Actor: Ord + Clone + Serialize + DeserializeOwned,
-> Orswot<Member, Actor> {
+impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
+    fn truncate(&mut self, clock: &VClock<A>) {
+        unimplemented!();
+        let mut empty_set = Orswot::new();
+        empty_set.clock = clock.clone();
+
+        // this should not fail
+        self.merge(&empty_set).unwrap();
+    }
+}
+
+impl<M: Member, A: Actor> Orswot<M, A> {
     /// Returns a new `Orswot` instance.
-    pub fn new() -> Orswot<Member, Actor> {
+    pub fn new() -> Self {
         Orswot {
             clock: VClock::new(),
             entries: BTreeMap::new(),
@@ -143,7 +172,7 @@ impl<
     /// a.merge(&b);
     /// assert!(a.value().is_empty());
     /// ```
-    pub fn add(&mut self, member: Member, actor: Actor) {
+    pub fn add(&mut self, member: M, actor: A) -> Op<M, A> {
         // TODO(tyler) is this safe?  riak_dt performs a similar increment,
         // but it doesn't seem to imply causality across divergent dots.
         let counter = self.clock.increment(actor.clone());
@@ -151,28 +180,29 @@ impl<
         let mut entry_clock = VClock::new();
         entry_clock.witness(actor, counter).unwrap();
 
-        self.entries.insert(member, entry_clock);
+        self.entries.insert(member.clone(), entry_clock);
+
+        Op::Add {
+            clock: self.clock.clone(),
+            member: member
+        }
     }
 
     /// Add several members.
-    pub fn add_all(&mut self, members: Vec<Member>, actor: Actor) {
-        for member in members.into_iter() {
-            self.add(member, actor.clone());
-        }
+    pub fn add_all(&mut self, members: Vec<M>, actor: A) -> Vec<Op<M, A>> {
+        members.into_iter()
+            .map(|member| self.add(member, actor.clone()))
+            .collect()
     }
 
     /// Remove a member without providing a witnessing context.
     /// Returns an existing context `VClock` if it was present.
-    pub unsafe fn remove(&mut self, member: Member) -> Option<VClock<Actor>> {
+    pub unsafe fn remove(&mut self, member: M) -> Option<VClock<A>> {
         self.entries.remove(&member)
     }
 
     /// Remove a member using a witnessing context.
-    pub fn remove_with_context(
-        &mut self,
-        member: Member,
-        context: &VClock<Actor>,
-    ) {
+    pub fn remove_with_context(&mut self, member: M, context: &VClock<A>) -> Op<M, A> {
         if !context.dominating_vclock(&self.clock).is_empty() {
             let mut deferred_drops =
                 self.deferred.remove(context).unwrap_or_else(|| BTreeSet::new());
@@ -183,35 +213,25 @@ impl<
         if let Some(existing_context) = self.entries.remove(&member) {
             let dom_clock = existing_context.dominating_vclock(&context);
             if !dom_clock.is_empty() {
-                self.entries.insert(member, dom_clock);
+                self.entries.insert(member.clone(), dom_clock);
             }
         }
-    }
 
-    /// Remove multiple members, without providing a witnessing context.
-    pub unsafe fn remove_all(
-        &mut self,
-        members: Vec<Member>,
-    ) -> Vec<Option<VClock<Actor>>> {
-        members
-            .into_iter()
-            .map(|member| self.remove(member))
-            .collect()
+        Op::Rm {
+            clock: self.clock.clone(),
+            member: member
+        }
     }
 
     /// Remove multiple members with a witnessing context.
-    pub fn remove_all_with_context(
-        &mut self,
-        members: Vec<Member>,
-        context: &VClock<Actor>,
-    ) {
-        for member in members.into_iter() {
-            self.remove_with_context(member, context);
-        }
+    pub fn remove_all_with_context(&mut self, members: Vec<M>, context: &VClock<A>) -> Vec<Op<M, A>> {
+        members.into_iter()
+            .map(|member| self.remove_with_context(member, context))
+            .collect()
     }
 
     /// Retrieve the current members.
-    pub fn value(&self) -> Vec<Member> {
+    pub fn value(&self) -> Vec<M> {
         self.entries.keys().cloned().collect()
     }
 
@@ -224,7 +244,7 @@ impl<
     }
 
     /// Returns the current `VClock` associated with this `Orswot`.
-    pub fn precondition_context(&self) -> VClock<Actor> {
+    pub fn precondition_context(&self) -> VClock<A> {
         self.clock.clone()
     }
 }

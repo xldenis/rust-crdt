@@ -10,19 +10,24 @@ pub enum Error {
     /// We don't always check for this error class as it can be fairly expensive.
     /// Instead, users must design their system in a way that will make these
     /// dot collisions unlikely.
-    ConflictingDot
+    ConflictingDot,
+    /// A generic error for any unmergable conflicts that may occur
+    MergeConflict
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
             Error::ConflictingDot =>
-                "Dot's are used exactly once for the lifetime of a CRDT"
+                "Dot's are used exactly once for the lifetime of a CRDT",
+            Error::MergeConflict =>
+                "There was a conflict while mergine"
         }
     }
     fn cause(&self) -> Option<&error::Error> {
         match self {
             Error::ConflictingDot => None,
+            Error::MergeConflict => None
         }
     }
 }
@@ -31,6 +36,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::ConflictingDot => {
+                use std::error::Error;
+                write!(f, "{}", self.description())
+            },
+            Error::MergeConflict => {
                 use std::error::Error;
                 write!(f, "{}", self.description())
             }

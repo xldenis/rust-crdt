@@ -1,15 +1,16 @@
 //! `crdts` is a library of thoroughly-tested, serializable CRDT's
 //! ported from the riak_dt library to rust.
 #![crate_type = "lib"]
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 
+pub use error::{Result, Error};
 pub use gcounter::GCounter;
 pub use lwwreg::LWWReg;
 pub use orswot::Orswot;
 pub use pncounter::PNCounter;
 pub use vclock::VClock;
 pub use map::Map;
-pub use traits::ComposableCrdt;
+pub use traits::{CvRDT, CmRDT, Causal};
 
 
 /// `traits` contains Trait commonly used when working with CRDT's

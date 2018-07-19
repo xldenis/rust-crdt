@@ -10,16 +10,27 @@
 //! assert!(a > b);
 //! ```
 
+// TODO: we have a mixture of language here with witness and actor. Clean this up
+
 use super::*;
 
-use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::cmp::{self, Ordering};
+use std::collections::{BTreeMap, btree_map};
 
 /// A counter is used to track causality at a particular actor.
 pub type Counter = u64;
 
-trait AddableU64 {
-    fn add_u64(&mut self, other: u64) -> Self;
+/// Common Actor type, Actors are unique identifier for every `thing` mutating a VClock.
+/// VClock based CRDT's will need to expose this Actor type to the user.
+pub trait Actor: Ord + Clone + Send + Serialize + DeserializeOwned {}
+impl<A: Ord + Clone + Send + Serialize + DeserializeOwned> Actor for A {}
+
+/// A dot represents the current counter of an actor
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Dot<A: Actor> {
+    pub actor: A,
+    pub counter: Counter
 }
 
 /// A `VClock` is a standard vector clock.
@@ -33,12 +44,12 @@ trait AddableU64 {
 /// isolation, and need to be resolved externally).
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct VClock<A: Ord + Clone + Serialize + DeserializeOwned> {
+pub struct VClock<A: Actor> {
     /// dots is the mapping from actors to their associated counters
     pub dots: BTreeMap<A, Counter>,
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd for VClock<A> {
+impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
@@ -58,7 +69,7 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd for VClock<A> {
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
+impl<A: Actor> VClock<A> {
     /// Returns a new `VClock` instance.
     pub fn new() -> VClock<A> {
         VClock { dots: BTreeMap::new() }
@@ -77,24 +88,59 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
     ///
     /// let glb = VClock::glb(&a, &b);
     ///
-    /// assert_eq!(glb.get(&"A".to_string()), Some(2));
-    /// assert_eq!(glb.get(&"B".to_string()), None);
+    /// assert_eq!(glb.get(&"A".to_string()), 2);
+    /// assert_eq!(glb.get(&"B".to_string()), 0);
     /// assert!(a >= glb);
     /// assert!(b >= glb);
     /// ```
     pub fn glb(a: &VClock<A>, b: &VClock<A>) -> VClock<A> {
         let mut glb_vclock = VClock::new();
         for (actor, a_cntr) in a.dots.iter() {
-            if let Some(b_cntr) = b.get(actor){
-                let min_cntr = if *a_cntr < b_cntr {
-                    *a_cntr
-                } else {
-                    b_cntr
-                };
+            let min_cntr = cmp::min(b.get(actor), *a_cntr);
+            if min_cntr > 0 {
+                // 0 is the implied counter if an actor is not in dots, so we don't
+                // need to waste memory by storing it
                 glb_vclock.dots.insert(actor.clone(), min_cntr);
             }
         }
         glb_vclock
+    }
+
+    /// Truncates the VClock to the greatest-lower-bound of the passed
+    /// in VClock and it's self
+    /// (essentially a mutable version of VClock::glb)
+    /// ``` rust
+    /// use crdts::VClock;
+    /// let mut c = VClock::new();
+    /// c.witness(23, 6);
+    /// c.witness(89, 14);
+    /// let c2 = c.clone();
+    ///
+    /// c.truncate(&c2); // should be a no-op
+    /// assert_eq!(c, c2);
+    ///
+    /// c.witness(43, 1);
+    /// assert_eq!(c.get(&43), 1);
+    /// c.truncate(&c2); // should remove the 43 => 1 entry
+    /// assert_eq!(c.get(&43), 0);
+    /// ```
+    pub fn truncate(&mut self, other: &VClock<A>) {
+        let mut actors_to_remove: Vec<A> = Vec::new();
+        for (actor, count) in self.dots.iter_mut() {
+            let min_count = cmp::min(*count, other.get(actor));
+            if min_count > 0 {
+                *count = min_count
+            } else {
+                // Since an actor missing from the dots map has an implied counter of 0
+                // we can save some memory, and remove the actor.
+                actors_to_remove.push(actor.clone())
+            }
+        }
+
+        // finally, remove all the zero counter actor
+        for actor in actors_to_remove {
+            self.dots.remove(&actor);
+        }
     }
 
     /// For a particular actor, possibly store a new counter
@@ -111,12 +157,12 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
     /// assert!(a > b);
     /// ```
     ///
-    pub fn witness(&mut self, actor: A, counter: Counter) -> Result<(), ()> {
+    pub fn witness(&mut self, actor: A, counter: Counter) -> Result<()> {
         if !self.contains_descendent_element(&actor, &counter) {
             self.dots.insert(actor, counter);
             Ok(())
         } else {
-            Err(())
+            Err(Error::ConflictingDot)
         }
     }
 
@@ -135,7 +181,7 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
     /// ```
     ///
     pub fn increment(&mut self, actor: A) -> Counter {
-        let next = self.dots.get(&actor).map(|c| *c).unwrap_or(0) + 1;
+        let next = self.get(&actor) + 1;
         self.dots.insert(actor, next);
         next
     }
@@ -193,9 +239,12 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
         self.partial_cmp(other).is_none()
     }
 
-    /// Return the associated counter for this actor, if present.
-    pub fn get(&self, actor: &A) -> Option<Counter> {
-        self.dots.get(actor).map(|counter| *counter)
+    /// Return the associated counter for this actor.
+    /// If all actors not in the vclock have an implied count of 0
+    pub fn get(&self, actor: &A) -> Counter {
+        self.dots.get(actor)
+            .map(|counter| *counter)
+            .unwrap_or(0u64)
     }
 
     /// Returns `true` if this vector clock contains nothing.
@@ -239,8 +288,8 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
     /// b.witness("F".to_string(), 2);
     ///
     /// let dom = a.dominating_vclock(&b);
-    /// assert_eq!(dom.get(&"B".to_string()), Some(2));
-    /// assert_eq!(dom.get(&"G".to_string()), Some(22));
+    /// assert_eq!(dom.get(&"B".to_string()), 2);
+    /// assert_eq!(dom.get(&"G".to_string()), 22);
     /// ```
     pub fn dominating_vclock(&self, other: &VClock<A>) -> VClock<A> {
         let dots = self.dominating_dots(&other.dots);
@@ -252,13 +301,52 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> VClock<A> {
     pub fn intersection(&self, other: &VClock<A>) -> VClock<A> {
         let mut dots = BTreeMap::new();
         for (actor, counter) in self.dots.iter() {
-            if let Some(other_counter) = other.dots.get(actor) {
-                if other_counter == counter {
-                    dots.insert(actor.clone(), *counter);
-                }
+            let other_counter = other.get(actor);
+            if other_counter == *counter {
+                dots.insert(actor.clone(), *counter);
             }
         }
         VClock { dots: dots }
+    }
+
+    /// Returns an iterator over the dots in this vclock
+    pub fn iter(&self) -> impl Iterator<Item=(&A, &u64)> {
+        self.dots.iter()
+    }
+
+    // /// Consumes the vclock and returns an iterator over dots in the clock
+    // fn into_iter(self) -> impl Iterator<Item=(A, u64)> {
+    //     self.dots.into_iter()
+    // }
+}
+
+impl<A: Actor> std::iter::IntoIterator for VClock<A> {
+    type Item = (A, u64);
+    type IntoIter = btree_map::IntoIter<A, u64>;
+    
+    /// Consumes the vclock and returns an iterator over dots in the clock
+    fn into_iter(self) -> btree_map::IntoIter<A, u64> {
+        self.dots.into_iter()
+    }
+}
+
+impl<A: Actor> From<Dot<A>> for VClock<A> {
+    fn from(dot: Dot<A>) -> VClock<A> {
+        let mut clock = VClock::new();
+        clock.witness(dot.actor, dot.counter).unwrap(); // this should not fail!
+        clock
+    }
+}
+
+impl<A: Actor> std::iter::FromIterator<(A, u64)> for VClock<A> {
+    fn from_iter<I: IntoIterator<Item=(A, u64)>>(iter: I) -> Self {
+        let mut clock = Self::new();
+
+        for (actor, counter) in iter {
+            clock.witness(actor, counter);
+        }
+
+        clock
     }
 }
 
@@ -270,16 +358,17 @@ mod tests {
     use self::quickcheck::{Arbitrary, Gen};
     use super::*;
 
-    impl Arbitrary for VClock<u16> {
-        fn arbitrary<G: Gen>(g: &mut G) -> VClock<u16> {
+    impl<A: Actor + Arbitrary> Arbitrary for VClock<A> {
+        fn arbitrary<G: Gen>(g: &mut G) -> Self {
             let mut v = VClock::new();
-            for witness in 0..g.gen_range(0, 7) {
-                v.witness(witness, g.gen_range(1, 7)).unwrap();
+            for _ in 0..g.gen_range(0, 7) {
+                let witness = A::arbitrary(g);
+                v.witness(witness, g.gen_range(1, 7));
             }
             v
         }
 
-        fn shrink(&self) -> Box<Iterator<Item = VClock<u16>>> {
+        fn shrink(&self) -> Box<Iterator<Item = VClock<A>>> {
             let mut smaller = vec![];
             for k in self.dots.keys() {
                 let mut vc = self.clone();
@@ -290,21 +379,53 @@ mod tests {
         }
     }
 
+    quickcheck! {
+        fn prop_from_iter_of_iter_is_nop(clock: VClock<u8>) -> bool {
+            clock == clock.clone().into_iter().collect()
+        }
+
+        fn prop_from_iter_order_of_dots_should_not_matter(dots: Vec<(u8, u64)>) -> bool {
+            // TODO: is there a better way to check comutativity of dots?
+            let reverse: VClock<u8> = dots.clone()
+                .into_iter()
+                .rev()
+                .collect();
+            let forward: VClock<u8> = dots
+                .into_iter()
+                .collect();
+
+            reverse == forward
+        }
+
+        fn prop_from_iter_dots_should_be_idempotent(dots: Vec<(u8, u64)>) -> bool {
+            let single: VClock<u8> = dots.clone()
+                .into_iter()
+                .collect();
+
+            let double: VClock<u8> = dots.clone()
+                .into_iter()
+                .chain(dots.into_iter())
+                .collect();
+
+            single == double
+        }
+
+        fn prop_truncate_self_is_nop(clock: VClock<u8>) -> bool {
+            let mut clock_truncated = clock.clone();
+            clock_truncated.truncate(&clock);
+
+            clock_truncated == clock
+        }
+    }
+
     #[test]
     fn test_merge() {
-        let (mut a, mut b) = (VClock::new(), VClock::new());
-        a.witness(1, 1).unwrap();
-        a.witness(2, 2).unwrap();
-        a.witness(4, 4).unwrap();
-
-        b.witness(3, 3).unwrap();
-        b.witness(4, 3).unwrap();
-
+        let mut a: VClock<u8> = vec![(1, 1), (2, 2), (4, 4)].into_iter().collect();
+        let b: VClock<u8> = vec![(3, 3), (4, 3)].into_iter().collect();
         a.merge(&b);
-        assert_eq!(a.get(&1), Some(1));
-        assert_eq!(a.get(&2), Some(2));
-        assert_eq!(a.get(&3), Some(3));
-        assert_eq!(a.get(&4), Some(4));
+        
+        let c: VClock<u8> = vec![(1, 1), (2, 2), (3, 3), (4, 4)].into_iter().collect();
+        assert_eq!(a, c);
     }
 
     #[test]
@@ -316,9 +437,9 @@ mod tests {
         b.witness(7, 7).unwrap();
 
         a.merge(&b);
-        assert_eq!(a.get(&5), Some(5));
-        assert_eq!(a.get(&6), Some(6));
-        assert_eq!(a.get(&7), Some(7));
+        assert_eq!(a.get(&5), 5);
+        assert_eq!(a.get(&6), 6);
+        assert_eq!(a.get(&7), 7);
     }
 
     #[test]
@@ -330,9 +451,9 @@ mod tests {
         b.witness(5, 5).unwrap();
 
         a.merge(&b);
-        assert_eq!(a.get(&5), Some(5));
-        assert_eq!(a.get(&6), Some(6));
-        assert_eq!(a.get(&7), Some(7));
+        assert_eq!(a.get(&5), 5);
+        assert_eq!(a.get(&6), 6);
+        assert_eq!(a.get(&7), 7);
     }
 
     #[test]
@@ -345,9 +466,9 @@ mod tests {
         b.witness(3, 1).unwrap();
 
         a.merge(&b);
-        assert_eq!(a.get(&1), Some(1));
-        assert_eq!(a.get(&2), Some(1));
-        assert_eq!(a.get(&3), Some(1));
+        assert_eq!(a.get(&1), 1);
+        assert_eq!(a.get(&2), 1);
+        assert_eq!(a.get(&3), 1);
     }
 
     #[test]

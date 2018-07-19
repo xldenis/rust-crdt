@@ -1,6 +1,7 @@
-use super::*;
-
 use std::cmp::Ordering;
+
+use vclock::Actor;
+use gcounter::GCounter;
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate
@@ -22,33 +23,33 @@ use std::cmp::Ordering;
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct PNCounter<A: Ord + Clone + Serialize + DeserializeOwned> {
+pub struct PNCounter<A: Actor> {
     p: GCounter<A>,
     n: GCounter<A>,
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> Ord for PNCounter<A> {
+impl<A: Actor> Ord for PNCounter<A> {
     fn cmp(&self, other: &PNCounter<A>) -> Ordering {
         let (c, oc) = (self.value(), other.value());
         c.cmp(&oc)
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd
+impl<A: Actor> PartialOrd
     for PNCounter<A> {
     fn partial_cmp(&self, other: &PNCounter<A>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialEq for PNCounter<A> {
+impl<A: Actor> PartialEq for PNCounter<A> {
     fn eq(&self, other: &PNCounter<A>) -> bool {
         let (c, oc) = (self.value(), other.value());
         c == oc
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PNCounter<A> {
+impl<A: Actor> PNCounter<A> {
     /// Produces a new `PNCounter`.
     pub fn new() -> PNCounter<A> {
         PNCounter {
