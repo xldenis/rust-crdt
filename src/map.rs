@@ -167,8 +167,6 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
         match op.clone() {
             Op::Nop => {/* do nothing */},
             Op::Rm { clock, key } => {
-                // TODO: grep for truncates with cloned clock, we changed the api
-                //       to take a reference
                 if !(self.clock >= clock) {
                     if let Some(mut entry) = self.entries.remove(&key) {
                         entry.clock.subtract(&clock);
@@ -202,7 +200,7 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {    
+impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
     fn merge(&mut self, other: &Self) -> Result<()> {
         for (key, entry) in other.entries.iter() {
             // TODO(david) avoid this remove here with entries.get_mut?
@@ -289,9 +287,12 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     ///
     /// The updater must return Some(val) to have the updated val stored back in
     /// the Map. If None is returned, this entry is removed from the Map.
-    pub fn update<F>(&mut self, key: K, updater: F, actor: A) -> Op<K, V, A> where
-        F: FnOnce(V) -> Option<V::Op>
-    {
+    pub fn update(
+        &mut self,
+        key: K,
+        updater: impl FnOnce(V) -> Option<V::Op>,
+        actor: A
+    ) -> Op<K, V, A> {
         let mut clock = self.clock.clone();
         clock.increment(actor.clone());
 
@@ -416,7 +417,7 @@ mod tests {
     impl Arbitrary for Map<TestKey, TestVal, TestActor> {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {
             let mut map = Map::new();
-            let num_entries: u8 = g.gen_range(0, 10);
+            let num_entries: u8 = g.gen_range(0, 30);
             for _ in 0..num_entries {
                 let reg = TestVal::arbitrary(g);
                 let actor = reg.dot.1.clone();
@@ -425,7 +426,7 @@ mod tests {
             map
         }
 
-        fn shrink(&self) -> Box<Iterator<Item = Map<TestKey, TestVal, TestActor>>> {
+        fn shrink(&self) -> Box<Iterator<Item = Self>> {
             let mut shrunk = Vec::new();
             for dot in self.clock.clone().into_iter() {
                 let mut map = self.clone();
@@ -468,12 +469,12 @@ mod tests {
             Box::new(shrunk.into_iter())
         }
     }
-    
+
     impl Arbitrary for OpVec {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {
             let actor = TestActor::arbitrary(g);
-            let num_ops: u8 = g.gen_range(0, 10); // max 255 ops should be ok for tests
-            
+            let num_ops: u8 = g.gen_range(0, 50);
+
             let mut map = TestMap::new();
             let mut ops = Vec::with_capacity(num_ops as usize);
             for _ in 0..num_ops {
@@ -487,14 +488,18 @@ mod tests {
                             let key = g.gen();
                             match die_roll % 4 {
                                 0 => {
-                                    // update key rm
-                                    let op = inner_map.update(key, |_| None, actor.clone());
+                                    // update key inner rm
+                                    let op = inner_map
+                                        .update(key, |_| None, actor.clone());
                                     Some(op)
                                 },
                                 1 => {
                                     // update key and val update
                                     let op = inner_map.update(key, |mut reg| {
-                                        reg.update(g.gen(), (g.gen(), actor.clone())).unwrap();
+                                        reg.update(
+                                            g.gen(),
+                                            (g.gen(), actor.clone())
+                                        ).unwrap();
                                         Some(reg)
                                     }, actor.clone());
                                     Some(op)
@@ -583,9 +588,12 @@ mod tests {
             },
             1
         );
-        assert_eq!(m.get(&101).unwrap().get(&110), Some(&LWWReg { val: 2, dot: (1, 1) }));
+        assert_eq!(
+            m.get(&101).unwrap().get(&110),
+            Some(&LWWReg { val: 2, dot: (1, 1) })
+        );
 
-        // Updating once more, the map should give the latest val to the function
+        // the map should give the latest val to the closure
         m.update(
             101,
             |mut map| {
@@ -600,7 +608,10 @@ mod tests {
             1
         );
 
-        assert_eq!(m.get(&101).unwrap().get(&110), Some(&LWWReg { val: 6, dot: (2, 1) }));
+        assert_eq!(
+            m.get(&101).unwrap().get(&110),
+            Some(&LWWReg { val: 6, dot: (2, 1) })
+        );
 
         // Returning None from the closure should remove the element
         m.update(101, |_| None, 1);
@@ -749,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn test_commute_dunno() {
+    fn test_commute_quickcheck_bug() {
         let ops = vec![
             Op::Rm {
                 clock: vec![(45, 1)].into_iter().collect(),
@@ -779,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn test_idempotent_dunno() {
+    fn test_idempotent_quickcheck_bug() {
         let ops = vec![
             Op::Up {
                 clock: vec![(21, 5)].into_iter().collect(),
