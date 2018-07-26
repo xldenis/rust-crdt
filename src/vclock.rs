@@ -14,6 +14,7 @@
 
 use super::*;
 
+use std::fmt::Debug;
 use std::cmp::{self, Ordering};
 use std::collections::{BTreeMap, btree_map};
 
@@ -22,8 +23,8 @@ pub type Counter = u64;
 
 /// Common Actor type, Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Send + Serialize + DeserializeOwned {}
-impl<A: Ord + Clone + Send + Serialize + DeserializeOwned> Actor for A {}
+pub trait Actor: Ord + Clone + Send + Serialize + DeserializeOwned + Debug {}
+impl<A: Ord + Clone + Send + Serialize + DeserializeOwned + Debug> Actor for A {}
 
 /// A `VClock` is a standard vector clock.
 /// It contains a set of "actors" and associated counters.

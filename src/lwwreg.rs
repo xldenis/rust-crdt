@@ -1,19 +1,21 @@
 extern crate serde;
 
+use std::fmt::Debug;
+
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use error::{Error, Result};
+use error::{self, Error, Result};
 use traits::{Causal, CvRDT, CmRDT};
 use vclock::{VClock, Actor};
 
 /// Trait bound alias for lwwreg vals
-pub trait Val: Clone + PartialEq + Send + Serialize + DeserializeOwned {}
-impl<T: Clone + PartialEq + Send + Serialize + DeserializeOwned> Val for T {}
+pub trait Val: Debug + Clone + PartialEq + Send + Serialize + DeserializeOwned {}
+impl<T: Debug + Clone + PartialEq + Send + Serialize + DeserializeOwned> Val for T {}
 
 /// Trait bound alias for lwwreg dots
-pub trait Dot: Clone + Ord + Send + Serialize + DeserializeOwned {}
-impl<T: Clone + Ord + Send + Serialize + DeserializeOwned> Dot for T {}
+pub trait Dot: Debug + Clone + Ord + Send + Serialize + DeserializeOwned {}
+impl<T: Debug + Clone + Ord + Send + Serialize + DeserializeOwned> Dot for T {}
 
 
 /// `LWWReg` is a simple CRDT that contains an arbitrary value
@@ -47,6 +49,8 @@ impl<V: Val, D: Dot, A: Actor> Causal<A> for LWWReg<V, D> {
 }
 
 impl<V: Val, D: Dot> CvRDT for LWWReg<V, D> {
+    type Error = error::Error;
+
     /// Combines two `LWWReg` instances according to the dot that
     /// tracks causality. Panics if the dot is identical but the
     /// contained element is different. If you would prefer divergence,
@@ -78,8 +82,10 @@ impl<V: Val, D: Dot> CvRDT for LWWReg<V, D> {
 }
 
 impl<V: Val, D: Dot> CmRDT for LWWReg<V, D> {
+    type Error = error::Error;
     // LWWReg's are small enough that we can replicate the entire state as an Op
     type Op = Self;
+
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
         self.merge(&op)
     }

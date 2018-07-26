@@ -5,17 +5,18 @@
 //!
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use error::Result;
+use error::{self, Result};
 use traits::{CvRDT, CmRDT, Causal};
 use vclock::{VClock, Actor};
 
 /// Trait bound alias for members in a set
-pub trait Member: Ord + Clone + Send + Serialize + DeserializeOwned {}
-impl<T: Ord + Clone + Send + Serialize + DeserializeOwned> Member for T {}
+pub trait Member: Debug + Ord + Clone + Send + Serialize + DeserializeOwned {}
+impl<T: Debug + Ord + Clone + Send + Serialize + DeserializeOwned> Member for T {}
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
@@ -31,7 +32,8 @@ pub struct Orswot<M: Member, A: Actor> {
 /// they were produced to guarantee convergence.
 ///
 /// Op's are idempotent, that is, applying an Op twice will not have an effect
-#[derive(Debug, Clone)]
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<M: Member, A: Actor> {
     /// Add a member to the set
     Add {
@@ -57,14 +59,18 @@ impl<M: Member, A: Actor> Default for Orswot<M, A> {
 
 
 impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
+    type Error = error::Error;
     type Op = Op<M, A>;
 
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
         match op.clone() {
-            Op::Add { clock, member } => {
+            Op::Add { mut clock, member } => {
                 // TODO: this is kinda lazy.. improve this
                 let mut set = self.clone();
                 set.clock.merge(&clock);
+                if let Some(existing_clock) = set.entries.remove(&member) {
+                    clock.merge(&existing_clock);
+                }
                 set.entries.insert(member, clock);
                 self.merge(&set)?;
             },
@@ -77,6 +83,8 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
 }
 
 impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
+    type Error = error::Error;
+
     /// Merge combines another `Orswot` with this one.
     fn merge(&mut self, other: &Self) -> Result<()> {
         let mut other_remaining = other.entries.clone();
@@ -153,6 +161,11 @@ impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
 
         // this should not fail
         self.merge(&empty_set).unwrap();
+        self.clock.subtract(&clock);
+
+        for (_, member_clock) in self.entries.iter_mut() {
+            member_clock.subtract(&clock);
+        }
     }
 }
 

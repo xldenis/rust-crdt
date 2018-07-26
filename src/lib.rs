@@ -8,7 +8,7 @@ pub use gcounter::GCounter;
 pub use lwwreg::LWWReg;
 pub use orswot::Orswot;
 pub use pncounter::PNCounter;
-pub use vclock::VClock;
+pub use vclock::{VClock, Actor};
 pub use map::Map;
 pub use traits::{CvRDT, CmRDT, Causal};
 
@@ -39,6 +39,7 @@ extern crate bincode;
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;
+
 
 use bincode::{Infinite, deserialize, serialize};
 use serde::Serialize;
