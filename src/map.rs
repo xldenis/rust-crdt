@@ -746,6 +746,37 @@ mod tests {
     }
 
     #[test]
+    fn test_deferred_remove() {
+        let mut m1 = TestMap::new();
+        let mut m2 = TestMap::new();
+        let mut m3 = TestMap::new();
+
+        let m1_up1 = m1.update(0, 1, |mut map| Some(map.update(0, 1, |mut reg| {
+            reg.update(5, (0, 1)).unwrap();
+            Some(reg)
+        })));
+        let m1_up2 = m1.update(1, 1, |mut map| Some(map.update(1, 1, |mut reg| {
+            reg.update(5, (0, 1)).unwrap();
+            Some(reg)
+        })));
+
+        m2.apply(&m1_up1);
+        m2.apply(&m1_up2);
+
+        let m2_rm = m2.rm(0, 2);
+
+        m3.apply(&m2_rm);
+        m3.apply(&m1_up1);
+        m3.apply(&m1_up2);
+
+        m1.apply(&m2_rm);
+
+        assert_eq!(m2, m3);
+        assert_eq!(m1, m2);
+        assert_eq!(m1, m3);
+    }
+
+    #[test]
     fn test_commute_quickcheck_bug() {
         let ops = vec![
             Op::Rm {

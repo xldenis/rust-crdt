@@ -691,12 +691,12 @@ mod tests {
         use map::Map;
         let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
 
-        m1.update(101, |mut set| Some(set.add(1, 75)), 75);
+        m1.update(101, 75, |mut set| Some(set.add(1, 75)));
 
         let mut m2 = m1.clone();
 
         m1.rm(101, 75);
-        m2.update(101, |mut set| Some(set.add(2, 93)), 93);
+        m2.update(101, 93, |mut set| Some(set.add(2, 93)));
 
         assert_eq!(m1.get(&101), None);
         assert_eq!(m2.get(&101).unwrap().value(), vec![1, 2]);
