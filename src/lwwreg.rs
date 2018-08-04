@@ -6,8 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use error::{self, Error, Result};
-use traits::{Causal, CvRDT, CmRDT};
-use vclock::{VClock, Actor};
+use traits::{CvRDT, CmRDT};
 
 /// Trait bound alias for lwwreg vals
 pub trait Val: Debug + Clone + PartialEq + Send + Serialize + DeserializeOwned {}
@@ -38,13 +37,6 @@ impl<V: Val + Default, D: Dot + Default> Default for LWWReg<V, D> {
             val: V::default(),
             dot: D::default()
         }
-    }
-}
-
-/// we pretend lwwreg is a causal crdt so that we can place lwwreg's inside map's
-impl<V: Val, D: Dot, A: Actor> Causal<A> for LWWReg<V, D> {
-    fn truncate(&mut self, _clock: &VClock<A>) {
-        // no-op
     }
 }
 
@@ -86,7 +78,7 @@ impl<V: Val, D: Dot> CmRDT for LWWReg<V, D> {
     // LWWReg's are small enough that we can replicate the entire state as an Op
     type Op = Self;
 
-    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+    fn apply(&mut self, op: Self::Op) -> Result<()> {
         self.merge(&op)
     }
 }
@@ -152,12 +144,7 @@ mod tests {
         }
 
         fn shrink(&self) -> Box<Iterator<Item = Self>> {
-            let LWWReg { val, dot } = self.clone();
-            let val_iter = self.val.shrink()
-                .map(move |val| LWWReg { val: val, dot: dot.clone()});
-            let dot_iter = self.dot.shrink()
-                .map(move |dot| LWWReg { val: val.clone(), dot: dot});
-            Box::new(val_iter.chain(dot_iter))
+            Box::new(vec![].into_iter())
         }
     }
     

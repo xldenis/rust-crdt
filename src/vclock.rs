@@ -17,14 +17,26 @@ use super::*;
 use std::fmt::Debug;
 use std::cmp::{self, Ordering};
 use std::collections::{BTreeMap, btree_map};
+use std::hash::Hash;
 
 /// A counter is used to track causality at a particular actor.
 pub type Counter = u64;
 
 /// Common Actor type, Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Send + Serialize + DeserializeOwned + Debug {}
-impl<A: Ord + Clone + Send + Serialize + DeserializeOwned + Debug> Actor for A {}
+pub trait Actor: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug {}
+impl<A: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug> Actor for A {}
+
+
+/// Dot is a version marker for a single actor
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dot<A: Actor> {
+    pub actor: A,
+    pub counter: Counter
+}
+
+// TODO: VClock derives an Ord implementation, but a total order over VClocks doesn't exist. I think this may mess up our BTreeMap usage in ORSWOT and friends
 
 /// A `VClock` is a standard vector clock.
 /// It contains a set of "actors" and associated counters.
@@ -177,6 +189,12 @@ impl<A: Actor> VClock<A> {
         let next = self.get(&actor) + 1;
         self.dots.insert(actor, next);
         next
+    }
+
+    /// Apply a dot to the VClock
+    pub fn apply(&mut self, dot: Dot<A>) -> Result<()> {
+        let _ = self.witness(dot.actor, dot.counter);
+        Ok(())
     }
 
     /// Merge another vector clock into this one, without
@@ -340,6 +358,20 @@ impl<A: Actor> std::iter::FromIterator<(A, u64)> for VClock<A> {
             let _ = clock.witness(actor, counter);
         }
 
+        clock
+    }
+}
+
+impl<A: Actor> From<Vec<(A, u64)>> for VClock<A> {
+    fn from(vec: Vec<(A, u64)>) -> Self {
+        vec.into_iter().collect()
+    }
+}
+
+impl<A: Actor> From<Dot<A>> for VClock<A> {
+    fn from(dot: Dot<A>) -> Self {
+        let mut clock = VClock::new();
+        assert!(clock.witness(dot.actor, dot.counter).is_ok());
         clock
     }
 }

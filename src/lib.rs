@@ -1,11 +1,12 @@
 //! `crdts` is a library of thoroughly-tested, serializable CRDT's
 //! ported from the riak_dt library to rust.
 #![crate_type = "lib"]
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 
 pub use error::{Result, Error};
 pub use gcounter::GCounter;
 pub use lwwreg::LWWReg;
+pub use mvreg::MVReg;
 pub use orswot::Orswot;
 pub use pncounter::PNCounter;
 pub use vclock::{VClock, Actor};
@@ -17,6 +18,8 @@ pub use traits::{CvRDT, CmRDT, Causal};
 pub mod traits;
 /// `lwwreg` contains the last-write-wins register.
 pub mod lwwreg;
+/// `mvreg` contains the multi-value register.
+pub mod mvreg;
 /// `vclock` contains the vector clock.
 pub mod vclock;
 /// `orswot` contains the addition-biased or-set without tombstone.
@@ -50,9 +53,10 @@ use serde::de::DeserializeOwned;
 /// # Examples
 ///
 /// ```
-/// use crdts::{Orswot, to_binary, from_binary};
+/// use crdts::{Orswot, CmRDT, to_binary, from_binary};
 /// let mut a = Orswot::new();
-/// a.add(1, 1);
+/// let op = a.add(1, a.dot(1));
+/// a.apply(op);
 /// let encoded = to_binary(&a);
 /// let decoded = from_binary(encoded).unwrap();
 /// assert_eq!(a, decoded);
@@ -66,9 +70,10 @@ pub fn to_binary<A: Serialize>(s: &A) -> Vec<u8> {
 /// # Examples
 ///
 /// ```
-/// use crdts::{Orswot, to_binary, from_binary};
+/// use crdts::{Orswot, CmRDT, to_binary, from_binary};
 /// let mut a = Orswot::new();
-/// a.add(1, 1);
+/// let op = a.add(1, a.dot(1));
+/// a.apply(op);
 /// let encoded = to_binary(&a);
 /// let decoded = from_binary(encoded).unwrap();
 /// assert_eq!(a, decoded);

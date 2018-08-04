@@ -43,7 +43,7 @@ pub trait CmRDT {
     type Op: Debug + Clone + Send + Serialize + DeserializeOwned;
 
     /// Apply an Op to the CRDT
-    fn apply(&mut self, op: &Self::Op) -> Result<(), Self::Error>;
+    fn apply(&mut self, op: Self::Op) -> Result<(), Self::Error>;
 }
 
 /// Crdt's are causal if they are built on top of vector clocks
