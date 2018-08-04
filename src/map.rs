@@ -46,7 +46,7 @@ impl<A, T> Val<A> for T where
 ///     friends.dot(a1),
 ///     |set, dot| set.add("bob".into(), dot)
 /// );
-/// friends.apply(op);
+/// friends.apply(&op);
 ///
 /// let mut friends_replica = friends.clone();
 /// let a2 = 8947212; // the replica's actor id
@@ -56,14 +56,14 @@ impl<A, T> Val<A> for T where
 ///
 /// let (_, rm_ctx) = friends.get(&"alice".to_string()).unwrap();
 /// let rm_op = friends.rm("alice".into(), rm_ctx);
-/// friends.apply(rm_op);
+/// friends.apply(&rm_op);
 ///
 /// let replica_op = friends_replica.update(
 ///     "alice".into(),
 ///     friends_replica.dot(a2),
 ///     |set, dot| set.add("clyde".into(), dot)
 /// );
-/// friends_replica.apply(replica_op);
+/// friends_replica.apply(&replica_op);
 ///
 /// assert_eq!(friends.get(&"alice".into()), None);
 /// assert_eq!(
@@ -162,8 +162,8 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     type Error = error::Error;
     type Op = Op<K, V, A>;
 
-    fn apply(&mut self, op: Self::Op) -> Result<()> {
-        match op {
+    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+        match op.clone() {
             Op::Nop => {/* do nothing */},
             Op::Rm { context, key } => {
                 self.apply_rm(key, &context);
@@ -181,7 +181,7 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
                     });
 
                 entry.clock.witness(actor.clone(), counter).unwrap();
-                entry.val.apply(op).map_err(|_| Error::NestedOpFailed)?;
+                entry.val.apply(&op).map_err(|_| Error::NestedOpFailed)?;
                 self.entries.insert(key.clone(), entry);
 
                 self.clock.witness(actor, counter).unwrap();
@@ -441,7 +441,7 @@ mod tests {
                     false =>
                         map.rm(key, VClock::arbitrary(g))
                 };
-                map.apply(op);
+                map.apply(&op);
             }
             map
         }
@@ -581,7 +581,7 @@ mod tests {
 
         assert_eq!(m, Map::new());
 
-        m.apply(op);
+        m.apply(&op);
 
         assert_eq!(
             m.get(&101)
@@ -597,7 +597,7 @@ mod tests {
                 reg.set(6, dot)
             })
         });
-        m.apply(op2);
+        m.apply(&op2);
 
         assert_eq!(
             m.get(&101)
@@ -614,9 +614,9 @@ mod tests {
         let op = m.update(101, m.dot(1), |m, dot| m.update(110, dot, |r, dot| r.set(0, dot)));
         let mut inner_map: Map<TestKey, TestVal, TestActor> = Map::new();
         let inner_op = inner_map.update(110, m.dot(1), |r, dot| r.set(0, dot));
-        inner_map.apply(inner_op);
+        inner_map.apply(&inner_op);
 
-        m.apply(op);
+        m.apply(&op);
 
         let rm_op = {
             let (val, ctx) = m.get(&101).unwrap();
@@ -624,7 +624,7 @@ mod tests {
             assert_eq!(m.len(), 1);
             m.rm(101, ctx)
         };
-        m.apply(rm_op);
+        m.apply(&rm_op);
         assert_eq!(m.get(&101), None);
         assert_eq!(m.len(), 0);
     }
@@ -637,21 +637,21 @@ mod tests {
                 reg.set(32, dot)
             })
         });
-        m1.apply(op1);
+        m1.apply(&op1);
 
         let mut m2 = m1.clone();
 
         let (_, ctx) = m1.get(&101).unwrap();
 
         let op2 = m1.rm(101, ctx);
-        m1.apply(op2);
+        m1.apply(&op2);
 
         let op3 = m2.update(101, m2.dot(37), |map, dot| {
             map.update(220, dot, |reg, dot| {
                 reg.set(5, dot)
             })
         });
-        m2.apply(op3);
+        m2.apply(&op3);
 
         let m1_snapshot = m1.clone();
         
@@ -669,7 +669,7 @@ mod tests {
     fn test_updating_with_current_clock_should_be_a_nop() {
         let mut m1: TestMap = Map::new();
 
-        let res = m1.apply(Op::Up {
+        let res = m1.apply(&Op::Up {
             dot: Dot { actor: 1, counter: 0 },
             key: 0,
             op: Op::Up {
@@ -699,8 +699,8 @@ mod tests {
         };
         let op2 = m2.update(102, m2.dot(2), |_, _| Op::Nop);
 
-        m1.apply(op1.clone());
-        m2.apply(op2.clone());
+        m1.apply(&op1.clone());
+        m2.apply(&op2.clone());
 
         let mut m1_clone = m1.clone();
         let mut m2_clone = m2.clone();
@@ -710,8 +710,8 @@ mod tests {
 
         assert_eq!(m1_clone, m2_clone);
 
-        assert!(m1.apply(op2).is_ok());
-        assert!(m2.apply(op1).is_ok());
+        assert!(m1.apply(&op2).is_ok());
+        assert!(m2.apply(&op1).is_ok());
 
         assert_eq!(m1, m2);
 
@@ -729,20 +729,20 @@ mod tests {
         let mut m2: Map<u8, MVReg<u8, u8>, u8> = Map::new();
 
         let m1_op1 = m1.update(0, m1.dot(1), |reg, dot| reg.set(0, dot));
-        m1.apply(m1_op1.clone());
+        m1.apply(&m1_op1);
 
         let m1_op2 = m1.rm(0, m1.get(&0).unwrap().1);
-        m1.apply(m1_op2.clone());
+        m1.apply(&m1_op2);
 
         let m2_op1 = m2.update(0, m2.dot(2), |reg, dot| reg.set(0, dot));
-        m2.apply(m2_op1.clone());
+        m2.apply(&m2_op1);
 
         // m1 <- m2
-        assert!(m1.apply(m2_op1).is_ok());
+        assert!(m1.apply(&m2_op1).is_ok());
 
         // m2 <- m1
-        assert!(m2.apply(m1_op1).is_ok());
-        assert!(m2.apply(m1_op2).is_ok());
+        assert!(m2.apply(&m1_op1).is_ok());
+        assert!(m2.apply(&m1_op2).is_ok());
 
         assert_eq!(m1, m2);
     }
@@ -756,31 +756,28 @@ mod tests {
         let m1_up1 = m1.update(0, m1.dot(1), |map, dot| map.update(0, dot, |reg, dot| {
             reg.set(0, dot)
         }));
-        m1.apply(m1_up1.clone()).unwrap();
+        m1.apply(&m1_up1).unwrap();
 
         let m1_up2 = m1.update(1, m1.dot(1), |map, dot| map.update(1, dot, |reg, dot| {
             reg.set(1, dot)
         }));
-        m1.apply(m1_up2.clone()).unwrap();
+        m1.apply(&m1_up2).unwrap();
 
-        assert!(m2.apply(m1_up1.clone()).is_ok());
-        assert!(m2.apply(m1_up2.clone()).is_ok());
+        assert!(m2.apply(&m1_up1).is_ok());
+        assert!(m2.apply(&m1_up2).is_ok());
 
         let (_, ctx) = m2.get(&0).unwrap();
         let m2_rm = m2.rm(0, ctx);
-        m2.apply(m2_rm.clone()).unwrap();
+        m2.apply(&m2_rm).unwrap();
         
         assert_eq!(m2.get(&0), None);
-        assert!(m3.apply(m2_rm.clone()).is_ok());
-        println!("{:#?}", m2);
-        println!("{:#?}", m3);
-        println!("{:#?}", m2_rm);
+        assert!(m3.apply(&m2_rm).is_ok());
         assert_eq!(m3.deferred.len(), 1);
-        assert!(m3.apply(m1_up1).is_ok());
+        assert!(m3.apply(&m1_up1).is_ok());
         assert_eq!(m3.deferred.len(), 0);
-        assert!(m3.apply(m1_up2).is_ok());
+        assert!(m3.apply(&m1_up2).is_ok());
 
-        assert!(m1.apply(m2_rm).is_ok());
+        assert!(m1.apply(&m2_rm).is_ok());
 
         assert_eq!(m2.get(&0), None);
         assert_eq!(
@@ -804,19 +801,19 @@ mod tests {
         let m1_up1 = m1.update(0, m1.dot(1), |map, dot| map.update(0, dot, |reg, dot| {
             reg.set(0, dot)
         }));
-        m1.apply(m1_up1.clone());
+        m1.apply(&m1_up1);
 
         let m1_up2 = m1.update(1, m1.dot(1), |map, dot| map.update(1, dot, |reg, dot| {
             reg.set(1, dot)
         }));
-        m1.apply(m1_up2.clone());
+        m1.apply(&m1_up2);
 
-        assert!(m2.apply(m1_up1.clone()).is_ok());
-        assert!(m2.apply(m1_up2.clone()).is_ok());
+        assert!(m2.apply(&m1_up1).is_ok());
+        assert!(m2.apply(&m1_up2).is_ok());
 
         let (_, ctx) = m2.get(&0).unwrap();
         let m2_rm = m2.rm(0, ctx);
-        m2.apply(m2_rm.clone());
+        m2.apply(&m2_rm);
 
         assert!(m3.merge(&m2).is_ok());
         assert!(m3.merge(&m1).is_ok());
@@ -896,7 +893,7 @@ mod tests {
     #[test]
     fn test_idempotent_quickcheck_bug2() {
         let mut m: TestMap = Map::new();
-        let res = m.apply(Op::Up {
+        let res = m.apply(&Op::Up {
             dot: Dot { actor: 32, counter: 5 },
             key: 0,
             op: Op::Up {
@@ -920,7 +917,7 @@ mod tests {
     #[test]
     fn test_nop_on_new_map_should_remain_a_new_map() {
         let mut map = TestMap::new();
-        map.apply(Op::Nop).unwrap();
+        map.apply(&Op::Nop).unwrap();
         assert_eq!(map, TestMap::new());
     }
 
@@ -945,8 +942,8 @@ mod tests {
         };
         let mut m1: TestMap = Map::new();
         let mut m2: TestMap = Map::new();
-        m1.apply(op1.clone()).unwrap();
-        m2.apply(op2.clone()).unwrap();
+        m1.apply(&op1).unwrap();
+        m2.apply(&op2).unwrap();
 
         let mut m1_merge = m1.clone();
         assert!(m1_merge.merge(&m2).is_ok());
@@ -954,8 +951,8 @@ mod tests {
         let mut m2_merge = m2.clone();
         assert!(m2_merge.merge(&m1).is_ok());
 
-        m1.apply(op2).unwrap();
-        m2.apply(op1).unwrap();
+        m1.apply(&op2).unwrap();
+        m2.apply(&op1).unwrap();
 
 
         assert_eq!(m1, m2);
@@ -1062,7 +1059,7 @@ mod tests {
 
     fn apply_ops(map: &mut TestMap, ops: &[TestOp]) {
         for op in ops.iter().cloned() {
-            map.apply(op).unwrap()
+            map.apply(&op).unwrap()
         }
     }
 

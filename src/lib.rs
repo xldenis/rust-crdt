@@ -9,7 +9,7 @@ pub use lwwreg::LWWReg;
 pub use mvreg::MVReg;
 pub use orswot::Orswot;
 pub use pncounter::PNCounter;
-pub use vclock::{VClock, Actor};
+pub use vclock::{VClock, Dot, Actor};
 pub use map::Map;
 pub use traits::{CvRDT, CmRDT, Causal};
 
@@ -56,7 +56,7 @@ use serde::de::DeserializeOwned;
 /// use crdts::{Orswot, CmRDT, to_binary, from_binary};
 /// let mut a = Orswot::new();
 /// let op = a.add(1, a.dot(1));
-/// a.apply(op);
+/// a.apply(&op);
 /// let encoded = to_binary(&a);
 /// let decoded = from_binary(encoded).unwrap();
 /// assert_eq!(a, decoded);
@@ -73,7 +73,7 @@ pub fn to_binary<A: Serialize>(s: &A) -> Vec<u8> {
 /// use crdts::{Orswot, CmRDT, to_binary, from_binary};
 /// let mut a = Orswot::new();
 /// let op = a.add(1, a.dot(1));
-/// a.apply(op);
+/// a.apply(&op);
 /// let encoded = to_binary(&a);
 /// let decoded = from_binary(encoded).unwrap();
 /// assert_eq!(a, decoded);

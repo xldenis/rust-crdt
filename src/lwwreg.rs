@@ -78,8 +78,8 @@ impl<V: Val, D: Dot> CmRDT for LWWReg<V, D> {
     // LWWReg's are small enough that we can replicate the entire state as an Op
     type Op = Self;
 
-    fn apply(&mut self, op: Self::Op) -> Result<()> {
-        self.merge(&op)
+    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+        self.merge(op)
     }
 }
 
