@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_set_should_not_mutate_reg() {
-        let reg = MVReg::new();
+        let reg = MVReg::<u8, u8>::new();
         let op = reg.set(32, Dot { actor: 1, counter: 2 });
         assert_eq!(reg, MVReg::new());
         let mut reg = reg;
@@ -349,8 +349,8 @@ mod tests {
 
     #[test]
     fn test_multi_get() {
-        let mut r1 = MVReg::new();
-        let mut r2 = MVReg::new();
+        let mut r1 = MVReg::<u8, u8>::new();
+        let mut r2 = MVReg::<u8, u8>::new();
         let op1 = r1.set(32, Dot { actor: 1, counter: 1 });
         let op2 = r2.set(82, Dot { actor: 2, counter: 1 });
         r1.apply(&op1).unwrap();

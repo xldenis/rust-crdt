@@ -54,7 +54,7 @@ use serde::de::DeserializeOwned;
 ///
 /// ```
 /// use crdts::{Orswot, CmRDT, to_binary, from_binary};
-/// let mut a = Orswot::new();
+/// let mut a: Orswot<u8, u8> = Orswot::new();
 /// let op = a.add(1, a.dot(1));
 /// a.apply(&op);
 /// let encoded = to_binary(&a);
@@ -71,7 +71,7 @@ pub fn to_binary<A: Serialize>(s: &A) -> Vec<u8> {
 ///
 /// ```
 /// use crdts::{Orswot, CmRDT, to_binary, from_binary};
-/// let mut a = Orswot::new();
+/// let mut a: Orswot<u8, u8> = Orswot::new();
 /// let op = a.add(1, a.dot(1));
 /// a.apply(&op);
 /// let encoded = to_binary(&a);

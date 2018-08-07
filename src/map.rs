@@ -39,29 +39,29 @@ impl<A, T> Val<A> for T where
 /// type Friend = String;
 ///
 /// let mut friends: Map<Friend, Orswot<Friend, Actor>, Actor> = Map::new();
-/// let a1 = 10837103590; // initial actors id
+/// let a1 = 10837103590u64; // initial actors id
 ///
 /// let op = friends.update(
-///     "alice".into(),
+///     "alice",
 ///     friends.dot(a1),
-///     |set, dot| set.add("bob".into(), dot)
+///     |set, dot| set.add("bob", dot)
 /// );
 /// friends.apply(&op);
 ///
 /// let mut friends_replica = friends.clone();
-/// let a2 = 8947212; // the replica's actor id
+/// let a2 = 8947212u64; // the replica's actor id
 ///
 /// // now the two maps diverge. the original map will remove "alice" from the map
 /// // while the replica map will update the "alice" friend set to include "clyde".
 ///
 /// let (_, rm_ctx) = friends.get(&"alice".to_string()).unwrap();
-/// let rm_op = friends.rm("alice".into(), rm_ctx);
+/// let rm_op = friends.rm("alice", rm_ctx);
 /// friends.apply(&rm_op);
 ///
 /// let replica_op = friends_replica.update(
-///     "alice".into(),
+///     "alice",
 ///     friends_replica.dot(a2),
-///     |set, dot| set.add("clyde".into(), dot)
+///     |set, dot| set.add("clyde", dot)
 /// );
 /// friends_replica.apply(&replica_op);
 ///
@@ -282,8 +282,8 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     }
 
     pub fn dot(&self, actor: impl Into<A>) -> Dot<A> {
-        let counter = self.clock.get(&actor) + 1;
         let actor = actor.into();
+        let counter = self.clock.get(&actor) + 1;
         Dot { actor, counter }
     }
 
@@ -434,12 +434,12 @@ mod tests {
             let mut map: Map<TestKey, TestVal, TestActor> = Map::new();
             let num_entries: u8 = g.gen_range(0, 30);
             for _ in 0..num_entries {
-                let key = g.gen();
+                let key: u8 = g.gen();
                 let actor = g.gen_range(0, 10);
                 let coin_toss = g.gen();
                 let op = match coin_toss {
                     true =>
-                        map.update(key, map.dot(actor), |r, dot| r.set(g.gen(), dot)),
+                        map.update(key, map.dot(actor), |r, dot| r.set(g.gen::<u8>(), dot)),
                     false =>
                         map.rm(key, VClock::arbitrary(g))
                 };

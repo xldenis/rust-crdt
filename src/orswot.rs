@@ -186,7 +186,8 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         }
     }
 
-    pub fn dot(&self, actor: A) -> Dot<A> {
+    pub fn dot(&self, actor: impl Into<A>) -> Dot<A> {
+        let actor = actor.into();
         let counter = self.clock.get(&actor) + 1;
         Dot { actor, counter }
     }
@@ -208,7 +209,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     /// ```
     /// use crdts::{Orswot, CvRDT, CmRDT};
     ///
-    /// let (mut a, mut b) = (Orswot::new(), Orswot::new());
+    /// let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
     /// let a_op = a.add(1, a.dot(1));
     /// a.apply(&a_op);
     /// let b_op = b.add(2, b.dot(1));
@@ -458,7 +459,7 @@ mod tests {
     /// copies of the orswot, or elements will be deleted upon merge.
     #[test]
     fn weird_highlight_1() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         let op_a = a.add(1, a.dot(1));
         let op_b = b.add(2, b.dot(1));
         a.apply(&op_a);
@@ -470,15 +471,15 @@ mod tests {
     /// 
     #[test]
     fn adds_dont_destroy_causality() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
         let ctx = vec![("actor 1".to_string(), 2), ("actor 2".to_string(), 2)]
             .into_iter()
             .collect();
-        let a_op1 = a.add("element".to_string(), a.dot("actor 7".to_string()));
+        let a_op1 = a.add("element", a.dot("actor 7"));
         a.apply(&a_op1);
-        b.apply_remove("element".to_string(), &ctx);
+        b.apply_remove("element", &ctx);
         
-        let a_op2 = a.add("element".to_string(), a.dot("actor 1".to_string()));
+        let a_op2 = a.add("element", a.dot("actor 1"));
         a.apply(&a_op2);
 
         assert!(a.merge(&b).is_ok());
@@ -493,17 +494,17 @@ mod tests {
     //  if removed elem is added first, it only misses one
     //  if non-related elem is added, it misses both
     fn ensure_deferred_merges() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
         let ctx1 = Dot { actor: 5, counter: 4 }.into();
         let ctx2 = Dot { actor: 4, counter: 4 }.into();
 
-        let b_op1 = b.add("element 1".to_string(), b.dot(5));
+        let b_op1 = b.add("element 1", b.dot(5));
         b.apply(&b_op1);
-        b.apply_remove("element 1".to_string(), &ctx1);
+        b.apply_remove("element 1", &ctx1);
         
-        let a_op = a.add("element 4".to_string(), a.dot(6));
+        let a_op = a.add("element 4", a.dot(6));
         a.apply(&a_op);
-        b.apply_remove("element 9".to_string(), &ctx2);
+        b.apply_remove("element 9", &ctx2);
 
         let mut merged = Orswot::new();
         assert!(merged.merge(&a).is_ok());
@@ -517,7 +518,7 @@ mod tests {
     #[test]
     fn preserve_deferred_across_merges() {
         let (mut a, mut b, mut c) =
-            (Orswot::new(), Orswot::new(), Orswot::new());
+            (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         // add element 5 from witness 1
         let op = a.add(5, a.dot(1));
         a.apply(&op);
@@ -547,7 +548,7 @@ mod tests {
     // than merged.
     #[test]
     fn merge_clocks_of_identical_entries() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
+        let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         // add element 1 with witnesses 3 and 7
         let a_op = a.add(1, a.dot(3));
         a.apply(&a_op);
@@ -564,11 +565,11 @@ mod tests {
     // port from riak_dt
     #[test]
     fn test_disjoint_merge() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        let a_op = a.add("bar".to_string(), a.dot("A".to_string()));
+        let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
+        let a_op = a.add("bar", a.dot("A"));
         a.apply(&a_op);
         assert_eq!(a.value(), vec!["bar".to_string()]);
-        let b_op = b.add("baz".to_string(), b.dot("B".to_string()));
+        let b_op = b.add("baz", b.dot("B"));
         b.apply(&b_op);
         assert_eq!(b.value(), vec!["baz".to_string()]);
         let mut c = a.clone();
@@ -577,7 +578,7 @@ mod tests {
         assert_eq!(c.value(), vec!["bar".to_string(), "baz".to_string()]);
 
         let rm_ctx = &a.context(&"bar".to_string());
-        a.apply_remove("bar".to_string(), &rm_ctx);
+        a.apply_remove("bar", &rm_ctx);
         let mut d = a.clone();
         assert!(d.merge(&c).is_ok());
         assert_eq!(d.value(), vec!["baz".to_string()]);
@@ -588,24 +589,24 @@ mod tests {
     // present in both Sets leads to removed items remaining after merge.
     #[test]
     fn test_present_but_removed() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        let a_op = a.add("Z".to_string(), a.dot("A".to_string()));
+        let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
+        let a_op = a.add("Z", a.dot("A"));
         a.apply(&a_op);
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
         
         let a_rm_ctx = a.context(&"Z".to_string());
-        a.apply_remove("Z".to_string(), &a_rm_ctx);
+        a.apply_remove("Z", &a_rm_ctx);
         assert_eq!(a.deferred.len(), 0);
 
-        let b_op = b.add("Z".to_string(), b.dot("B".to_string()));
+        let b_op = b.add("Z", b.dot("B"));
         b.apply(&b_op);
 
         // Replicate B to A, so now A has a Z, the one with a Dot of
         // {b,1} and clock of [{a, 1}, {b, 1}]
         assert!(a.merge(&b).is_ok());
         let b_rm_ctx = b.context(&"Z".to_string());
-        b.apply_remove("Z".to_string(), &b_rm_ctx);
+        b.apply_remove("Z", &b_rm_ctx);
         // Both C and A have a 'Z', but when they merge, there should be
         // no 'Z' as C's has been removed by A and A's has been removed by
         // C.
@@ -619,14 +620,14 @@ mod tests {
     // you then store the value with an empty clock (derp).
     #[test]
     fn test_no_dots_left_test() {
-        let (mut a, mut b) = (Orswot::new(), Orswot::new());
-        let a_op = a.add("Z".to_string(), a.dot(1));
+        let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
+        let a_op = a.add("Z", a.dot(1));
         a.apply(&a_op);
-        let b_op = b.add("Z".to_string(), b.dot(2));
+        let b_op = b.add("Z", b.dot(2));
         b.apply(&b_op);
         let c = a.clone();
         let a_rm_ctx = a.context(&"Z".to_string());
-        a.apply_remove("Z".to_string(), &a_rm_ctx);
+        a.apply_remove("Z", &a_rm_ctx);
 
         // replicate B to A, now A has B's 'Z'
         assert!(a.merge(&b).is_ok());
@@ -638,7 +639,7 @@ mod tests {
         assert_eq!(a.clock, expected_clock);
 
         let b_rm_ctx = b.context(&"Z".to_string());
-        b.apply_remove("Z".to_string(), &b_rm_ctx);
+        b.apply_remove("Z", &b_rm_ctx);
         assert!(b.value().is_empty());
 
         // Replicate C to B, now B has A's old 'Z'
@@ -668,18 +669,18 @@ mod tests {
     // always happen, but may not. (ie, the test needs expanding)
     #[test]
     fn test_dead_node_update() {
-        let mut a = Orswot::new();
-        let a_op = a.add("A".to_string(), a.dot(1));
+        let mut a = Orswot::<String, u8>::new();
+        let a_op = a.add("A", a.dot(1));
         assert_eq!(a_op, super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: "A".into() });
         a.apply(&a_op);
         assert_eq!(a.context(&"A".to_string()), Dot { actor: 1, counter: 1 }.into());
 
         let mut b = a.clone();
-        let b_op = b.add("B".to_string(), b.dot(2));
+        let b_op = b.add("B", b.dot(2));
         b.apply(&b_op);
         let bctx = b.precondition_context();
         assert_eq!(bctx, vec![(1, 1), (2, 1)].into());
-        a.apply_remove("A".to_string(), &bctx);
+        a.apply_remove("A", &bctx);
         assert_eq!(a.value(), Vec::<String>::new());
     }
 
