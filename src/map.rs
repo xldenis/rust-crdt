@@ -303,7 +303,7 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     pub fn update<U>(&self, key: impl Into<K>, dot: Dot<A>, updater: U) -> Op<K, V, A>
         where U: FnOnce(&V, Dot<A>) -> V::Op
     {
-        let key = key.into()
+        let key = key.into();
         let op = if let Some(entry) = self.entries.get(&key) {
             updater(&entry.val, dot.clone())
         } else {
