@@ -148,15 +148,21 @@ impl<V: Val, A: Actor> MVReg<V, A> {
         MVReg::default()
     }
 
-    pub fn set(&self, val: V, dot: Dot<A>) -> Op<V, A> {
+    pub fn set(&self, val: impl Into<V>, dot: Dot<A>) -> Op<V, A> {
         let mut context = self.context();
         context.apply(dot).unwrap();
-        Op::Put { context, val }
+        Op::Put { context, val: val.into() }
+    }
+
+    pub fn get_owned(self) -> (Vec<V>, VClock<A>) {
+        let context = self.context();
+        let concurrent_vals = self.vals.into_iter().map(|(_, v)| v).collect();
+        (concurrent_vals, context)
     }
 
     pub fn get(&self) -> (Vec<&V>, VClock<A>) {
-        let concurrent_vals = self.vals.iter().map(|(_, v)| v).collect();
         let context = self.context();
+        let concurrent_vals = self.vals.iter().map(|(_, v)| v).collect();
         (concurrent_vals, context)
     }
 

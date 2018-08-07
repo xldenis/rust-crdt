@@ -281,8 +281,9 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
          }
     }
 
-    pub fn dot(&self, actor: A) -> Dot<A> {
+    pub fn dot(&self, actor: impl Into<A>) -> Dot<A> {
         let counter = self.clock.get(&actor) + 1;
+        let actor = actor.into();
         Dot { actor, counter }
     }
 
@@ -299,9 +300,10 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 
     /// Update a value under some key, if the key is not present in the map,
     /// the updater will be given the result of V::default().
-    pub fn update<U>(&self, key: K, dot: Dot<A>, updater: U) -> Op<K, V, A>
+    pub fn update<U>(&self, key: impl Into<K>, dot: Dot<A>, updater: U) -> Op<K, V, A>
         where U: FnOnce(&V, Dot<A>) -> V::Op
     {
+        let key = key.into()
         let op = if let Some(entry) = self.entries.get(&key) {
             updater(&entry.val, dot.clone())
         } else {
@@ -311,8 +313,8 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     }
 
     /// Remove an entry from the Map
-    pub fn rm(&self, key: K, context: VClock<A>) -> Op<K, V, A> {
-        Op::Rm { context, key }
+    pub fn rm(&self, key: impl Into<K>, context: VClock<A>) -> Op<K, V, A> {
+        Op::Rm { context, key: key.into() }
     }
 
     /// apply the pending deferred removes 

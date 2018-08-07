@@ -216,24 +216,25 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     /// a.merge(&b);
     /// assert!(a.value().is_empty());
     /// ```
-    pub fn add(&self, member: M, dot: Dot<A>) -> Op<M, A> {
-        Op::Add { dot, member }
+    pub fn add(&self, member: impl Into<M>, dot: Dot<A>) -> Op<M, A> {
+        Op::Add { dot, member: member.into() }
     }
 
     /// Add several members.
-    pub fn add_all(&self, members: Vec<M>, dot: Dot<A>) -> Vec<Op<M, A>> {
+    pub fn add_all(&self, members: Vec<impl Into<M>>, dot: Dot<A>) -> Vec<Op<M, A>> {
         members.into_iter()
             .map(|member| self.add(member, dot.clone()))
             .collect()
     }
 
     /// Remove a member with a witnessing context.
-    pub fn remove(&self, member: M, context: VClock<A>) -> Op<M, A> {
-        Op::Rm { context, member }
+    pub fn remove(&self, member: impl Into<M>, context: VClock<A>) -> Op<M, A> {
+        Op::Rm { context, member: member.into() }
     }
 
     /// Remove a member using a witnessing context.
-    pub fn apply_remove(&mut self, member: M, context: &VClock<A>) {
+    pub fn apply_remove(&mut self, member: impl Into<M>, context: &VClock<A>) {
+        let member: M = member.into();
         if !context.dominating_vclock(&self.clock).is_empty() {
             let mut deferred_drops =
                 self.deferred.remove(context).unwrap_or_else(|| BTreeSet::new());
@@ -250,7 +251,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     }
 
     /// Remove multiple members with a witnessing context.
-    pub fn apply_remove_all(&mut self, members: Vec<M>, context: &VClock<A>) {
+    pub fn apply_remove_all(&mut self, members: Vec<impl Into<M>>, context: &VClock<A>) {
         members.into_iter()
             .map(|member| self.apply_remove(member, context))
             .collect()
