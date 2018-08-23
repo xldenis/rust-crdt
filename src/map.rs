@@ -44,7 +44,7 @@ impl<A, T> Val<A> for T where
 /// let op = friends.update(
 ///     "alice",
 ///     friends.dot(a1),
-///     |set, dot| set.add("bob", dot)
+///     |set, dot| set.add("bob", dot.clone())
 /// );
 /// friends.apply(&op);
 ///
@@ -61,7 +61,7 @@ impl<A, T> Val<A> for T where
 /// let replica_op = friends_replica.update(
 ///     "alice",
 ///     friends_replica.dot(a2),
-///     |set, dot| set.add("clyde", dot)
+///     |set, dot| set.add("clyde", dot.clone())
 /// );
 /// friends_replica.apply(&replica_op);
 ///
@@ -108,7 +108,7 @@ pub enum Op<K: Key, V: Val<A>, A: Actor> {
     /// Remove a key from the map
     Rm {
         /// The entry's clock at the time of the remove
-        context: VClock<A>,
+        ctx: VClock<A>,
         /// Key to remove
         key: K
     },
@@ -165,8 +165,8 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
         match op.clone() {
             Op::Nop => {/* do nothing */},
-            Op::Rm { context, key } => {
-                self.apply_rm(key, &context);
+            Op::Rm { ctx, key } => {
+                self.apply_rm(key, &ctx);
             },
             Op::Up { dot: Dot { actor, counter }, key, op } => {
                 if self.clock.get(&actor) >= counter {
@@ -301,20 +301,20 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     /// Update a value under some key, if the key is not present in the map,
     /// the updater will be given the result of V::default().
     pub fn update<U>(&self, key: impl Into<K>, dot: Dot<A>, updater: U) -> Op<K, V, A>
-        where U: FnOnce(&V, Dot<A>) -> V::Op
+        where U: FnOnce(&V, &Dot<A>) -> V::Op
     {
         let key = key.into();
         let op = if let Some(entry) = self.entries.get(&key) {
-            updater(&entry.val, dot.clone())
+            updater(&entry.val, &dot)
         } else {
-            updater(&V::default(), dot.clone())
+            updater(&V::default(), &dot)
         };
         Op::Up { dot, key, op }
     }
 
     /// Remove an entry from the Map
-    pub fn rm(&self, key: impl Into<K>, context: VClock<A>) -> Op<K, V, A> {
-        Op::Rm { context, key: key.into() }
+    pub fn rm(&self, key: impl Into<K>, ctx: VClock<A>) -> Op<K, V, A> {
+        Op::Rm { ctx, key: key.into() }
     }
 
     /// apply the pending deferred removes 
@@ -383,11 +383,11 @@ mod tests {
 
             match self.clone() {
                 Op::Nop => {/* shrink to nothing */},
-                Op::Rm { context, key } => {
+                Op::Rm { ctx, key } => {
                     shrunk.extend(
-                        context.shrink()
+                        ctx.shrink()
                             .map(|c| Op::Rm {
-                                context: c,
+                                ctx: c,
                                 key: key.clone()
                             })
                             .collect::<Vec<Self>>()
@@ -396,7 +396,7 @@ mod tests {
                     shrunk.extend(
                         key.shrink()
                             .map(|k| Op::Rm {
-                                context: context.clone(),
+                                ctx: ctx.clone(),
                                 key: k.clone()
                             }).collect::<Vec<Self>>()
                     );
@@ -443,7 +443,7 @@ mod tests {
                     false =>
                         map.rm(key, VClock::arbitrary(g))
                 };
-                map.apply(&op);
+                map.apply(&op).unwrap();
             }
             map
         }
@@ -489,12 +489,11 @@ mod tests {
             for i in 0..num_ops {
                 let die_roll: u8 = g.gen();
                 let die_roll_inner: u8 = g.gen();
-                let context: VClock<_> = Dot { actor, counter: i as u64 }.into();
-                // context = context.into_iter().filter(|(a, _)| a != &actor).collect();
-                // context.witness(actor.clone(), i as u64).unwrap();
+                let ctx: VClock<_> = Dot { actor, counter: i as u64 }.into();
+
                 let op = match die_roll % 3 {
                     0 => {
-                        let dot = Dot { actor, counter: context.get(&actor) };
+                        let dot = Dot { actor, counter: ctx.get(&actor) };
                         Op::Up {
                             dot: dot.clone(),
                             key: g.gen(),
@@ -503,19 +502,19 @@ mod tests {
                                     dot: dot.clone(),
                                     key: g.gen(),
                                     op: mvreg::Op::Put {
-                                        context,
+                                        ctx,
                                         val: g.gen()
                                     }
                                 },
                                 1 => Op::Rm {
-                                    context,
+                                    ctx,
                                     key: g.gen()
                                 },
                                 _ => Op::Nop
                             }
                         }
                     },
-                    1 => Op::Rm { context, key: g.gen() },
+                    1 => Op::Rm { ctx, key: g.gen() },
                     _ => Op::Nop
                 };
                 ops.push(op);
@@ -547,7 +546,9 @@ mod tests {
 
         assert_eq!(m.get(&0), None);
 
-        m.clock.increment(1);
+        let op_1 = m.clock.inc(1);
+        m.clock.apply(&op_1).unwrap();
+
         m.entries.insert(0, Entry {
             clock: m.clock.clone(),
             val: Map::default()
@@ -562,7 +563,7 @@ mod tests {
 
         // constructs a default value if does not exist
         let op = m.update(101, m.dot(1), |map, dot| {
-            map.update(110, dot, |reg, dot| reg.set(2, dot))
+            map.update(110, dot.clone(), |reg, dot| reg.set(2, dot))
         });
 
         assert_eq!(
@@ -574,7 +575,7 @@ mod tests {
                     dot: Dot { actor: 1, counter: 1 },
                     key: 110,
                     op: mvreg::Op::Put {
-                        context: Dot { actor: 1, counter: 1 }.into(),
+                        ctx: Dot { actor: 1, counter: 1 }.into(),
                         val: 2
                     }
                 }
@@ -583,7 +584,7 @@ mod tests {
 
         assert_eq!(m, Map::new());
 
-        m.apply(&op);
+        m.apply(&op).unwrap();
 
         assert_eq!(
             m.get(&101)
@@ -594,12 +595,12 @@ mod tests {
 
         // the map should give the latest val to the closure
         let op2 = m.update(101, m.dot(1), |map, dot| {
-            map.update(110, dot, |reg, dot| {
+            map.update(110, dot.clone(), |reg, dot| {
                 assert_eq!(reg.get().0, vec![&2]);
                 reg.set(6, dot)
             })
         });
-        m.apply(&op2);
+        m.apply(&op2).unwrap();
 
         assert_eq!(
             m.get(&101)
@@ -613,12 +614,16 @@ mod tests {
     fn test_remove() {
         let mut m: TestMap = Map::new();
 
-        let op = m.update(101, m.dot(1), |m, dot| m.update(110, dot, |r, dot| r.set(0, dot)));
+        let op = m.update(
+            101,
+            m.dot(1),
+            |m, dot| m.update(110, dot.clone(), |r, dot| r.set(0, dot))
+        );
         let mut inner_map: Map<TestKey, TestVal, TestActor> = Map::new();
         let inner_op = inner_map.update(110, m.dot(1), |r, dot| r.set(0, dot));
-        inner_map.apply(&inner_op);
+        inner_map.apply(&inner_op).unwrap();
 
-        m.apply(&op);
+        m.apply(&op).unwrap();
 
         let rm_op = {
             let (val, ctx) = m.get(&101).unwrap();
@@ -626,7 +631,7 @@ mod tests {
             assert_eq!(m.len(), 1);
             m.rm(101, ctx)
         };
-        m.apply(&rm_op);
+        m.apply(&rm_op).unwrap();
         assert_eq!(m.get(&101), None);
         assert_eq!(m.len(), 0);
     }
@@ -635,25 +640,25 @@ mod tests {
     fn test_reset_remove_semantics() {
         let mut m1 = TestMap::new();
         let op1 = m1.update(101, m1.dot(74), |map, dot| {
-            map.update(110, dot, |reg, dot| {
+            map.update(110, dot.clone(), |reg, dot| {
                 reg.set(32, dot)
             })
         });
-        m1.apply(&op1);
+        m1.apply(&op1).unwrap();
 
         let mut m2 = m1.clone();
 
         let (_, ctx) = m1.get(&101).unwrap();
 
         let op2 = m1.rm(101, ctx);
-        m1.apply(&op2);
+        m1.apply(&op2).unwrap();
 
         let op3 = m2.update(101, m2.dot(37), |map, dot| {
-            map.update(220, dot, |reg, dot| {
+            map.update(220, dot.clone(), |reg, dot| {
                 reg.set(5, dot)
             })
         });
-        m2.apply(&op3);
+        m2.apply(&op3).unwrap();
 
         let m1_snapshot = m1.clone();
         
@@ -678,7 +683,7 @@ mod tests {
                 dot: Dot { actor: 1, counter: 0 },
                 key: 1,
                 op: mvreg::Op::Put {
-                    context: VClock::new(),
+                    ctx: VClock::new(),
                     val: 235
                 }
             }
@@ -696,13 +701,13 @@ mod tests {
         let mut m2 = TestMap::new();
 
         let op1 = Op::Rm {
-            context: Dot { actor: 1, counter: 1 }.into(),
+            ctx: Dot { actor: 1, counter: 1 }.into(),
             key: 102
         };
         let op2 = m2.update(102, m2.dot(2), |_, _| Op::Nop);
 
-        m1.apply(&op1.clone());
-        m2.apply(&op2.clone());
+        m1.apply(&op1).unwrap();
+        m2.apply(&op2).unwrap();
 
         let mut m1_clone = m1.clone();
         let mut m2_clone = m2.clone();
@@ -731,13 +736,13 @@ mod tests {
         let mut m2: Map<u8, MVReg<u8, u8>, u8> = Map::new();
 
         let m1_op1 = m1.update(0, m1.dot(1), |reg, dot| reg.set(0, dot));
-        m1.apply(&m1_op1);
+        m1.apply(&m1_op1).unwrap();
 
         let m1_op2 = m1.rm(0, m1.get(&0).unwrap().1);
-        m1.apply(&m1_op2);
+        m1.apply(&m1_op2).unwrap();
 
         let m2_op1 = m2.update(0, m2.dot(2), |reg, dot| reg.set(0, dot));
-        m2.apply(&m2_op1);
+        m2.apply(&m2_op1).unwrap();
 
         // m1 <- m2
         assert!(m1.apply(&m2_op1).is_ok());
@@ -755,14 +760,22 @@ mod tests {
         let mut m2 = TestMap::new();
         let mut m3 = TestMap::new();
 
-        let m1_up1 = m1.update(0, m1.dot(1), |map, dot| map.update(0, dot, |reg, dot| {
-            reg.set(0, dot)
-        }));
+        let m1_up1 = m1.update(
+            0,
+            m1.dot(1),
+            |map, dot| map.update(0, dot.clone(), |reg, dot| {
+                reg.set(0, dot)
+            })
+        );
         m1.apply(&m1_up1).unwrap();
 
-        let m1_up2 = m1.update(1, m1.dot(1), |map, dot| map.update(1, dot, |reg, dot| {
-            reg.set(1, dot)
-        }));
+        let m1_up2 = m1.update(
+            1,
+            m1.dot(1),
+            |map, dot| map.update(1, dot.clone(), |reg, dot| {
+                reg.set(1, dot)
+            })
+        );
         m1.apply(&m1_up2).unwrap();
 
         assert!(m2.apply(&m1_up1).is_ok());
@@ -800,22 +813,30 @@ mod tests {
         let mut m2 = TestMap::new();
         let mut m3 = TestMap::new();
 
-        let m1_up1 = m1.update(0, m1.dot(1), |map, dot| map.update(0, dot, |reg, dot| {
-            reg.set(0, dot)
-        }));
-        m1.apply(&m1_up1);
+        let m1_up1 = m1.update(
+            0,
+            m1.dot(1),
+            |map, dot| map.update(0, dot.clone(), |reg, dot| {
+                reg.set(0, dot)
+            })
+        );
+        m1.apply(&m1_up1).unwrap();
 
-        let m1_up2 = m1.update(1, m1.dot(1), |map, dot| map.update(1, dot, |reg, dot| {
-            reg.set(1, dot)
-        }));
-        m1.apply(&m1_up2);
+        let m1_up2 = m1.update(
+            1,
+            m1.dot(1),
+            |map, dot| map.update(1, dot.clone(), |reg, dot| {
+                reg.set(1, dot)
+            })
+        );
+        m1.apply(&m1_up2).unwrap();
 
         assert!(m2.apply(&m1_up1).is_ok());
         assert!(m2.apply(&m1_up2).is_ok());
 
         let (_, ctx) = m2.get(&0).unwrap();
         let m2_rm = m2.rm(0, ctx);
-        m2.apply(&m2_rm);
+        m2.apply(&m2_rm).unwrap();
 
         assert!(m3.merge(&m2).is_ok());
         assert!(m3.merge(&m1).is_ok());
@@ -838,7 +859,7 @@ mod tests {
     fn test_commute_quickcheck_bug() {
         let ops = vec![
             Op::Rm {
-                context: Dot { actor: 45, counter: 1 }.into(),
+                ctx: Dot { actor: 45, counter: 1 }.into(),
                 key: 0
             },
             Op::Up {
@@ -847,7 +868,7 @@ mod tests {
                 op: Op::Up {
                     dot: Dot { actor: 45, counter: 1 },
                     key: 0,
-                    op: mvreg::Op::Put { context: VClock::new(), val: 0 }
+                    op: mvreg::Op::Put { ctx: VClock::new(), val: 0 }
                 }
             }
         ];
@@ -878,7 +899,7 @@ mod tests {
                 op: Op::Up {
                     dot: Dot { actor: 21, counter: 1 },
                     key: 0,
-                    op: mvreg::Op::Put { context: VClock::new(), val: 0 }
+                    op: mvreg::Op::Put { ctx: VClock::new(), val: 0 }
                 }
             }
         ];
@@ -901,7 +922,7 @@ mod tests {
             op: Op::Up {
                 dot: Dot { actor: 32, counter: 5 },
                 key: 0,
-                op: mvreg::Op::Put { context: VClock::new(), val: 0 }
+                op: mvreg::Op::Put { ctx: VClock::new(), val: 0 }
             }
         });
 
@@ -937,7 +958,7 @@ mod tests {
                 dot: Dot { actor: 91, counter: 1 },
                 key: 37,
                 op: mvreg::Op::Put {
-                    context: Dot { actor: 91, counter: 1 }.into(),
+                    ctx: Dot { actor: 91, counter: 1 }.into(),
                     val: 94
                 }
             }
@@ -975,7 +996,7 @@ mod tests {
                     dot: Dot { actor: 62, counter: 1 },
                     key: 65,
                     op: mvreg::Op::Put {
-                        context: Dot { actor: 62, counter: 1 }.into(),
+                        ctx: Dot { actor: 62, counter: 1 }.into(),
                         val: 240
                     }
                 }
@@ -987,7 +1008,7 @@ mod tests {
                     dot: Dot { actor: 62, counter: 1 },
                     key: 193,
                     op: mvreg::Op::Put {
-                        context: Dot { actor: 62, counter: 1 }.into(),
+                        ctx: Dot { actor: 62, counter: 1 }.into(),
                         val: 28
                     }
                 }
@@ -1014,7 +1035,7 @@ mod tests {
                     dot: Dot { actor: 0, counter: 3 },
                     key: 0,
                     op: mvreg::Op::Put {
-                        context: Dot { actor: 0, counter: 3 }.into(),
+                        ctx: Dot { actor: 0, counter: 3 }.into(),
                         val: 0
                     }
                 }
@@ -1025,12 +1046,12 @@ mod tests {
                 dot: Dot { actor: 1, counter: 1 },
                 key: 9,
                 op: Op::Rm {
-                    context: Dot { actor: 1, counter: 1 }.into(),
+                    ctx: Dot { actor: 1, counter: 1 }.into(),
                     key: 0
                 }
             },
             Op::Rm {
-                context: Dot { actor: 1, counter: 2 }.into(),
+                ctx: Dot { actor: 1, counter: 2 }.into(),
                 key: 9
             }
         ];

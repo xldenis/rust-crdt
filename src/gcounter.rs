@@ -1,19 +1,25 @@
 use std::cmp::Ordering;
-
-use vclock::{VClock, Actor};
+use traits::{CvRDT, CmRDT};
+use vclock::{VClock, Actor, Dot};
+use error::{Error, Result};
 
 /// `GCounter` is a grow-only witnessed counter.
 ///
 /// # Examples
 ///
 /// ```
-/// use crdts::GCounter;
+/// use crdts::{GCounter, CmRDT};
+/// 
 /// let (mut a, mut b) = (GCounter::new(), GCounter::new());
-/// a.increment("A".to_string());
-/// b.increment("B".to_string());
+/// let op_a1 = a.inc("A".to_string());
+/// let op_b = b.inc("B".to_string());
+/// a.apply(&op_a1).unwrap();
+/// b.apply(&op_b).unwrap();
 /// assert_eq!(a.value(), b.value());
 /// assert!(a == b);
-/// a.increment("A".to_string());
+/// let op_a2 = a.inc("A".to_string());
+/// a.inc("A".to_string());
+/// a.apply(&op_a2).unwrap();
 /// assert!(a > b);
 /// ```
 #[serde(bound(deserialize = ""))]
@@ -42,6 +48,24 @@ impl<A: Actor> PartialEq for GCounter<A> {
     }
 }
 
+impl<A: Actor> CmRDT for GCounter<A> {
+    type Op = Dot<A>;
+    type Error = Error;
+
+    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+        self.inner.apply(op)
+    }
+}
+
+impl<A: Actor> CvRDT for GCounter<A> {
+    type Error = Error;
+
+    fn merge(&mut self, other: &Self) -> Result<()> {
+        self.inner.merge(&other.inner);
+        Ok(())
+    }
+}
+
 impl<A: Actor> GCounter<A> {
     /// Produces a new `GCounter`.
     pub fn new() -> GCounter<A> {
@@ -49,31 +73,13 @@ impl<A: Actor> GCounter<A> {
     }
 
     /// Increments a particular actor's counter.
-    pub fn increment(&mut self, actor: A) {
-        self.inner.increment(actor);
+    pub fn inc(&self, actor: A) -> Dot<A> {
+        self.inner.inc(actor)
     }
 
     /// Returns the current sum of this counter.
     pub fn value(&self) -> u64 {
         self.inner.dots.values().fold(0, |acc, count| acc + count)
-    }
-
-    /// Merge another gcounter into this one, without
-    /// regard to dominance.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crdts::GCounter;
-    /// let (mut a, mut b, mut c) = (GCounter::new(), GCounter::new(), GCounter::new());
-    /// a.increment("A".to_string());
-    /// b.increment("B".to_string());
-    /// c.increment("A".to_string());
-    /// c.increment("B".to_string());
-    /// a.merge(b);
-    /// assert_eq!(a, c);
-    pub fn merge(&mut self, other: GCounter<A>) {
-        self.inner.merge(&other.inner);
     }
 }
 
@@ -84,11 +90,16 @@ mod tests {
     #[test]
     fn test_basic() {
         let (mut a, mut b) = (GCounter::new(), GCounter::new());
-        a.increment("A".to_string());
-        b.increment("B".to_string());
+        let a_op = a.inc("A".to_string());
+        let b_op = b.inc("B".to_string());
+        a.apply(&a_op).unwrap();
+        b.apply(&b_op).unwrap();
         assert_eq!(a.value(), b.value());
         assert!(a == b);
-        a.increment("A".to_string());
+        
+        let a_op2 = a.inc("A".to_string());
+        a.apply(&a_op2).unwrap();
+
         assert!(a > b);
     }
 }

@@ -213,7 +213,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     /// let a_op = a.add(1, a.dot(1));
     /// a.apply(&a_op);
     /// let b_op = b.add(2, b.dot(1));
-    /// b.apply(&b_op);
+    /// b.apply(&b_op).unwrap();
     /// a.merge(&b);
     /// assert!(a.value().is_empty());
     /// ```
@@ -400,7 +400,7 @@ mod tests {
                     &Op::Add { member, actor } => {
                         let witness = &mut witnesses[(actor % i) as usize];
                         let w_op = witness.add(member, witness.dot(actor));
-                        witness.apply(&w_op);
+                        witness.apply(&w_op).unwrap();
                     }
                     &Op::Remove {
                         ctx: None,
@@ -462,8 +462,8 @@ mod tests {
         let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         let op_a = a.add(1, a.dot(1));
         let op_b = b.add(2, b.dot(1));
-        a.apply(&op_a);
-        b.apply(&op_b);
+        a.apply(&op_a).unwrap();
+        b.apply(&op_b).unwrap();
         assert!(a.merge(&b).is_ok());
         assert!(a.value().is_empty());
     }
@@ -476,11 +476,11 @@ mod tests {
             .into_iter()
             .collect();
         let a_op1 = a.add("element", a.dot("actor 7"));
-        a.apply(&a_op1);
+        a.apply(&a_op1).unwrap();
         b.apply_remove("element", &ctx);
         
         let a_op2 = a.add("element", a.dot("actor 1"));
-        a.apply(&a_op2);
+        a.apply(&a_op2).unwrap();
 
         assert!(a.merge(&b).is_ok());
         assert_eq!(a.value(), vec!["element".to_string()]);
@@ -499,11 +499,11 @@ mod tests {
         let ctx2 = Dot { actor: 4, counter: 4 }.into();
 
         let b_op1 = b.add("element 1", b.dot(5));
-        b.apply(&b_op1);
+        b.apply(&b_op1).unwrap();
         b.apply_remove("element 1", &ctx1);
         
         let a_op = a.add("element 4", a.dot(6));
-        a.apply(&a_op);
+        a.apply(&a_op).unwrap();
         b.apply_remove("element 9", &ctx2);
 
         let mut merged = Orswot::new();
@@ -521,7 +521,7 @@ mod tests {
             (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         // add element 5 from witness 1
         let op = a.add(5, a.dot(1));
-        a.apply(&op);
+        a.apply(&op).unwrap();
 
         // on another clock, remove 5 with an advanced clock for witnesses 1 and 4
         let mut vc = VClock::new();
@@ -551,14 +551,16 @@ mod tests {
         let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         // add element 1 with witnesses 3 and 7
         let a_op = a.add(1, a.dot(3));
-        a.apply(&a_op);
+        a.apply(&a_op).unwrap();
         let b_op = a.add(1, b.dot(7));
-        b.apply(&b_op);
+        b.apply(&b_op).unwrap();
         assert!(a.merge(&b).is_ok());
         assert_eq!(a.value(), vec![1]);
         let mut expected_clock = VClock::new();
-        expected_clock.increment(3);
-        expected_clock.increment(7);
+        let op_3 = expected_clock.inc(3);
+        let op_7 = expected_clock.inc(7);
+        expected_clock.apply(&op_3).unwrap();
+        expected_clock.apply(&op_7).unwrap();
         assert_eq!(a.entries.get(&1), Some(&expected_clock));
     }
 
@@ -567,10 +569,10 @@ mod tests {
     fn test_disjoint_merge() {
         let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
         let a_op = a.add("bar", a.dot("A"));
-        a.apply(&a_op);
+        a.apply(&a_op).unwrap();
         assert_eq!(a.value(), vec!["bar".to_string()]);
         let b_op = b.add("baz", b.dot("B"));
-        b.apply(&b_op);
+        b.apply(&b_op).unwrap();
         assert_eq!(b.value(), vec!["baz".to_string()]);
         let mut c = a.clone();
         assert_eq!(c.value(), vec!["bar".to_string()]);
@@ -591,7 +593,7 @@ mod tests {
     fn test_present_but_removed() {
         let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
         let a_op = a.add("Z", a.dot("A"));
-        a.apply(&a_op);
+        a.apply(&a_op).unwrap();
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
         
@@ -600,7 +602,7 @@ mod tests {
         assert_eq!(a.deferred.len(), 0);
 
         let b_op = b.add("Z", b.dot("B"));
-        b.apply(&b_op);
+        b.apply(&b_op).unwrap();
 
         // Replicate B to A, so now A has a Z, the one with a Dot of
         // {b,1} and clock of [{a, 1}, {b, 1}]
@@ -622,9 +624,9 @@ mod tests {
     fn test_no_dots_left_test() {
         let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
         let a_op = a.add("Z", a.dot(1));
-        a.apply(&a_op);
+        a.apply(&a_op).unwrap();
         let b_op = b.add("Z", b.dot(2));
-        b.apply(&b_op);
+        b.apply(&b_op).unwrap();
         let c = a.clone();
         let a_rm_ctx = a.context(&"Z".to_string());
         a.apply_remove("Z", &a_rm_ctx);
@@ -634,8 +636,11 @@ mod tests {
         assert_eq!(a.value(), vec!["Z".to_string()]);
 
         let mut expected_clock = VClock::new();
-        expected_clock.increment(1);
-        expected_clock.increment(2);
+        let op_1 = expected_clock.inc(1);
+        let op_2 = expected_clock.inc(2);
+        expected_clock.apply(&op_1).unwrap();
+        expected_clock.apply(&op_2).unwrap();
+
         assert_eq!(a.clock, expected_clock);
 
         let b_rm_ctx = b.context(&"Z".to_string());
@@ -672,12 +677,12 @@ mod tests {
         let mut a = Orswot::<String, u8>::new();
         let a_op = a.add("A", a.dot(1));
         assert_eq!(a_op, super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: "A".into() });
-        a.apply(&a_op);
+        a.apply(&a_op).unwrap();
         assert_eq!(a.context(&"A".to_string()), Dot { actor: 1, counter: 1 }.into());
 
         let mut b = a.clone();
         let b_op = b.add("B", b.dot(2));
-        b.apply(&b_op);
+        b.apply(&b_op).unwrap();
         let bctx = b.precondition_context();
         assert_eq!(bctx, vec![(1, 1), (2, 1)].into());
         a.apply_remove("A", &bctx);
@@ -689,16 +694,16 @@ mod tests {
         use map::Map;
         let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
 
-        let op1 = m1.update(101, m1.dot(75), |set, dot| set.add(1, dot));
-        m1.apply(&op1);
+        let op1 = m1.update(101, m1.dot(75), |set, dot| set.add(1, dot.clone()));
+        m1.apply(&op1).unwrap();
 
         let mut m2 = m1.clone();
 
         let (_, ctx) = m1.get(&101).unwrap();
         let op2 = m1.rm(101, ctx);
-        m1.apply(&op2);
-        let op3 = m2.update(101, m2.dot(93), |set, dot| set.add(2, dot));
-        m2.apply(&op3);
+        m1.apply(&op2).unwrap();
+        let op3 = m2.update(101, m2.dot(93), |set, dot| set.add(2, dot.clone()));
+        m2.apply(&op3).unwrap();
 
         assert_eq!(m1.get(&101), None);
         assert_eq!(m2.get(&101).unwrap().0.value(), vec![1, 2]);

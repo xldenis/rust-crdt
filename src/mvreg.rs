@@ -19,7 +19,7 @@ pub struct MVReg<V: Val, A: Actor> {
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<V: Val, A: Actor> {
-    Put { context: VClock<A>, val: V }
+    Put { ctx: VClock<A>, val: V }
 }
 
 impl<V: Val, A: Actor> PartialEq for MVReg<V, A> {
@@ -114,20 +114,19 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
 
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
         match op.clone() {
-            Op::Put { context, val } => {
-                if context.is_empty() {
+            Op::Put { ctx, val } => {
+                if ctx.is_empty() {
                     return Ok(());
                 }
-                // first filter out all values that are dominated by the Op context
-                self.vals.retain(|(val_context, _)| !(val_context < &context));
+                // first filter out all values that are dominated by the Op ctx
+                self.vals.retain(|(val_ctx, _)| !(val_ctx < &ctx));
 
                 // now check if we've already seen this op
                 let mut should_add = true;
                 for (existing_ctx, existing_val) in self.vals.iter() {
-
-                    if existing_ctx == &context && existing_val != &val {
+                    if existing_ctx == &ctx && existing_val != &val {
                         return Err(Error::ConflictingDot);
-                    } else if existing_ctx >= &context {
+                    } else if existing_ctx >= &ctx {
                         // we've found an entry that descends this op
                         should_add = false;
                         // don't break out of this loop!
@@ -135,7 +134,7 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
                     }
                 }
                 if should_add {
-                    self.vals.push((context, val));
+                    self.vals.push((ctx, val));
                 }
             }
         }
@@ -148,22 +147,22 @@ impl<V: Val, A: Actor> MVReg<V, A> {
         MVReg::default()
     }
 
-    pub fn set(&self, val: impl Into<V>, dot: Dot<A>) -> Op<V, A> {
-        let mut context = self.context();
-        context.apply(dot).unwrap();
-        Op::Put { context, val: val.into() }
+    pub fn set(&self, val: impl Into<V>, dot: &Dot<A>) -> Op<V, A> {
+        let mut ctx = self.context();
+        ctx.apply(&dot).unwrap();
+        Op::Put { ctx, val: val.into() }
     }
 
     pub fn get_owned(self) -> (Vec<V>, VClock<A>) {
-        let context = self.context();
+        let ctx = self.context();
         let concurrent_vals = self.vals.into_iter().map(|(_, v)| v).collect();
-        (concurrent_vals, context)
+        (concurrent_vals, ctx)
     }
 
     pub fn get(&self) -> (Vec<&V>, VClock<A>) {
-        let context = self.context();
+        let ctx = self.context();
         let concurrent_vals = self.vals.iter().map(|(_, v)| v).collect();
-        (concurrent_vals, context)
+        (concurrent_vals, ctx)
     }
 
     pub fn context(&self) -> VClock<A> {
@@ -201,8 +200,8 @@ mod tests {
                 }
             }
 
-            for Op::Put { context: c, val: v } in self.ops.iter() {
-                for Op::Put { context: other_c, val: other_v } in other.ops.iter() {
+            for Op::Put { ctx: c, val: v } in self.ops.iter() {
+                for Op::Put { ctx: other_c, val: other_v } in other.ops.iter() {
                     if c == other_c && v != other_v {
                         return true;
                     }
@@ -237,12 +236,9 @@ mod tests {
             for _ in 0..num_ops {
                 let val = V::arbitrary(g);
                 let actor = A::arbitrary(g);
-                let dot = Dot {
-                    actor: actor.clone(),
-                    counter: reg.context().increment(actor)
-                };
-                let op = reg.set(val, dot);
-                reg.apply(&op);
+                let dot = reg.context().inc(actor);
+                let op = reg.set(val, &dot);
+                reg.apply(&op).unwrap();
                 ops.push(op);
             }
             TestReg { reg, ops }
@@ -266,21 +262,21 @@ mod tests {
 
                 shrunk.push(TestReg { reg, ops });
 
-                let Op::Put { context, val } = self.ops[i].clone();
-                for dot in context.clone().into_iter() {
-                    let shrunk_context: VClock<A> = context.clone()
+                let Op::Put { ctx, val } = self.ops[i].clone();
+                for dot in ctx.clone().into_iter() {
+                    let shrunk_ctx: VClock<A> = ctx.clone()
                         .into_iter()
                         .filter(|d| d != &dot)
                         .collect();
 
-                    if shrunk_context.is_empty() {
+                    if shrunk_ctx.is_empty() {
                         continue;
                     }
                     
                     let mut reg = MVReg::new();
                     let mut ops = self.ops.clone();
                     ops[i] = Op::Put {
-                        context: shrunk_context,
+                        ctx: shrunk_ctx,
                         val: val.clone()
                     };
                     let mut conflict = false;
@@ -300,18 +296,18 @@ mod tests {
     #[test]
     fn test_apply() {
         let mut reg = MVReg::new();
-        let context = VClock::from(Dot { actor: 2, counter: 1 });
-        reg.apply(&Op::Put { context: context.clone(), val: 71 }).unwrap();
-        assert_eq!(reg, MVReg { vals: vec![(context, 71)] });
+        let ctx = VClock::from(Dot { actor: 2, counter: 1 });
+        reg.apply(&Op::Put { ctx: ctx.clone(), val: 71 }).unwrap();
+        assert_eq!(reg, MVReg { vals: vec![(ctx, 71)] });
     }
 
     #[test]
     fn test_set_should_not_mutate_reg() {
         let reg = MVReg::<u8, u8>::new();
-        let op = reg.set(32, Dot { actor: 1, counter: 2 });
+        let op = reg.set(32, &Dot { actor: 1, counter: 2 });
         assert_eq!(reg, MVReg::new());
         let mut reg = reg;
-        reg.apply(&op);
+        reg.apply(&op).unwrap();
 
         let (vals, ctx) = reg.get();
         assert_eq!(vals, vec![&32]);
@@ -324,10 +320,10 @@ mod tests {
         let mut r1 = MVReg::new();
         let mut r2 = MVReg::new();
 
-        let op1 = r1.set(23, Dot { actor: 4, counter: 1 });
-        let op2 = r2.set(23, Dot { actor: 7, counter: 1 });
-        r1.apply(&op1);
-        r2.apply(&op2);
+        let op1 = r1.set(23, &Dot { actor: 4, counter: 1 });
+        let op2 = r2.set(23, &Dot { actor: 7, counter: 1 });
+        r1.apply(&op1).unwrap();
+        r2.apply(&op2).unwrap();
 
         r1.merge(&r2).unwrap();
         assert_eq!(r1.get(), (vec![&23, &23], VClock::from(vec![(4, 1), (7, 1)])));
@@ -339,9 +335,9 @@ mod tests {
         let mut r1 = MVReg::new();
         let r2 = MVReg::new();
 
-        let op1 = r1.set(23, Dot { actor: 4, counter: 1 });
-        r1.apply(&op1);
-        let op2 = r2.set(23, Dot { actor: 7, counter: 1 });
+        let op1 = r1.set(23, &Dot { actor: 4, counter: 1 });
+        r1.apply(&op1).unwrap();
+        let op2 = r2.set(23, &Dot { actor: 7, counter: 1 });
 
         r1.apply(&op2).unwrap();
         assert_eq!(r1.get(), (vec![&23, &23], VClock::from(vec![(4, 1), (7, 1)])));
@@ -351,8 +347,8 @@ mod tests {
     fn test_multi_get() {
         let mut r1 = MVReg::<u8, u8>::new();
         let mut r2 = MVReg::<u8, u8>::new();
-        let op1 = r1.set(32, Dot { actor: 1, counter: 1 });
-        let op2 = r2.set(82, Dot { actor: 2, counter: 1 });
+        let op1 = r1.set(32, &Dot { actor: 1, counter: 1 });
+        let op2 = r2.set(82, &Dot { actor: 2, counter: 1 });
         r1.apply(&op1).unwrap();
         r2.apply(&op2).unwrap();
 
@@ -366,8 +362,8 @@ mod tests {
         let mut reg1 = MVReg::new();
         let mut reg2 = MVReg::new();
 
-        let op1 = Op::Put { context: Dot { actor: 1, counter: 1 }.into(), val: 1 };
-        let op2 = Op::Put { context: Dot { actor: 2, counter: 1 }.into(), val: 2 };
+        let op1 = Op::Put { ctx: Dot { actor: 1, counter: 1 }.into(), val: 1 };
+        let op2 = Op::Put { ctx: Dot { actor: 2, counter: 1 }.into(), val: 2 };
 
         reg2.apply(&op2).unwrap();
         reg2.apply(&op1).unwrap();
@@ -388,7 +384,7 @@ mod tests {
             true
         }
 
-        fn prop_set_with_dot_from_get_context(r: TestReg<u8, TActor>, a: TActor) -> bool {
+        fn prop_set_with_dot_from_get_ctx(r: TestReg<u8, TActor>, a: TActor) -> bool {
             let mut reg = r.reg;
             let (_, ctx) = reg.get();
             let counter = ctx.get(&a) + 1;
@@ -396,8 +392,8 @@ mod tests {
                 actor: a,
                 counter
             };
-            let op = reg.set(23, dot);
-            reg.apply(&op);
+            let op = reg.set(23, &dot);
+            reg.apply(&op).unwrap();
 
             let (vals, _) = reg.get();
             vals == vec![&23]

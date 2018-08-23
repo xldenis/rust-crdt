@@ -14,7 +14,7 @@
 
 use super::*;
 
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display};
 use std::cmp::{self, Ordering};
 use std::collections::{BTreeMap, btree_map};
 use std::hash::Hash;
@@ -71,6 +71,19 @@ impl<A: Actor> PartialOrd for VClock<A> {
         } else {
             None
         }
+    }
+}
+
+impl<A: Actor + Display> Display for VClock<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<")?;
+        for (i, (actor, count)) in self.dots.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}: {}", actor, count)?;
+        }
+        write!(f, ">")
     }
 }
 
@@ -178,22 +191,24 @@ impl<A: Actor> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.increment("A".to_string());
-    /// a.increment("A".to_string());
+    /// let a_op1 = a.inc("A".to_string());
+    /// a.apply(&a_op1).unwrap();
+    /// let a_op2 = a.inc("A".to_string());
+    /// a.apply(&a_op2).unwrap();
+    ///
     /// a.witness("A".to_string(), 0); // ignored because 2 dominates 0
-    /// b.increment("A".to_string());
+    /// let b_op = b.inc("A".to_string());
+    /// b.apply(&b_op);
     /// assert!(a > b);
     /// ```
-    ///
-    pub fn increment(&mut self, actor: A) -> Counter {
+    pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
-        self.dots.insert(actor, next);
-        next
+        Dot { actor: actor, counter: next }
     }
 
     /// Apply a dot to the VClock
-    pub fn apply(&mut self, dot: Dot<A>) -> Result<()> {
-        let _ = self.witness(dot.actor, dot.counter);
+    pub fn apply(&mut self, dot: &Dot<A>) -> Result<()> {
+        let _ = self.witness(dot.actor.clone(), dot.counter);
         Ok(())
     }
 
@@ -205,10 +220,14 @@ impl<A: Actor> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b, mut c) = (VClock::new(), VClock::new(), VClock::new());
-    /// a.increment("A".to_string());
-    /// b.increment("B".to_string());
-    /// c.increment("A".to_string());
-    /// c.increment("B".to_string());
+    /// let a_op = a.inc("A".to_string());
+    /// a.apply(&a_op);
+    /// let b_op = b.inc("B".to_string());
+    /// b.apply(&b_op);
+    /// let c_op1 = c.inc("A".to_string());
+    /// c.apply(&c_op1);
+    /// let c_op2 = c.inc("B".to_string());
+    /// c.apply(&c_op2);
     /// a.merge(&b);
     /// assert_eq!(a, c);
     /// ```
@@ -242,8 +261,10 @@ impl<A: Actor> VClock<A> {
     /// ```
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.increment("A".to_string());
-    /// b.increment("B".to_string());
+    /// let a_op = a.inc("A".to_string());
+    /// a.apply(&a_op);
+    /// let b_op = b.inc("B".to_string());
+    /// b.apply(&b_op);
     /// assert!(a.concurrent(&b));
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
