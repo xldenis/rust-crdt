@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use traits::{CvRDT, CmRDT};
 use vclock::{VClock, Actor, Dot};
-use error::{Error, Result};
 
 /// `GCounter` is a grow-only witnessed counter.
 ///
@@ -13,13 +12,13 @@ use error::{Error, Result};
 /// let (mut a, mut b) = (GCounter::new(), GCounter::new());
 /// let op_a1 = a.inc("A".to_string());
 /// let op_b = b.inc("B".to_string());
-/// a.apply(&op_a1).unwrap();
-/// b.apply(&op_b).unwrap();
+/// a.apply(&op_a1);
+/// b.apply(&op_b);
 /// assert_eq!(a.value(), b.value());
 /// assert!(a == b);
 /// let op_a2 = a.inc("A".to_string());
 /// a.inc("A".to_string());
-/// a.apply(&op_a2).unwrap();
+/// a.apply(&op_a2);
 /// assert!(a > b);
 /// ```
 #[serde(bound(deserialize = ""))]
@@ -50,19 +49,15 @@ impl<A: Actor> PartialEq for GCounter<A> {
 
 impl<A: Actor> CmRDT for GCounter<A> {
     type Op = Dot<A>;
-    type Error = Error;
 
-    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+    fn apply(&mut self, op: &Self::Op) {
         self.inner.apply(op)
     }
 }
 
 impl<A: Actor> CvRDT for GCounter<A> {
-    type Error = Error;
-
-    fn merge(&mut self, other: &Self) -> Result<()> {
+    fn merge(&mut self, other: &Self) {
         self.inner.merge(&other.inner);
-        Ok(())
     }
 }
 
@@ -92,13 +87,13 @@ mod tests {
         let (mut a, mut b) = (GCounter::new(), GCounter::new());
         let a_op = a.inc("A".to_string());
         let b_op = b.inc("B".to_string());
-        a.apply(&a_op).unwrap();
-        b.apply(&b_op).unwrap();
+        a.apply(&a_op);
+        b.apply(&b_op);
         assert_eq!(a.value(), b.value());
         assert!(a == b);
         
         let a_op2 = a.inc("A".to_string());
-        a.apply(&a_op2).unwrap();
+        a.apply(&a_op2);
 
         assert!(a > b);
     }

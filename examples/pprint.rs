@@ -17,8 +17,8 @@ fn main() {
 
     let op1 = reg.set("some val", &dot_9742820);
     let op2 = reg.set("some other val", &dot_648572);
-    reg.apply(&op1).unwrap();
-    reg.apply(&op2).unwrap();
+    reg.apply(&op1);
+    reg.apply(&op2);
 
     println!("reg:\t{}", reg);
 }

@@ -194,9 +194,9 @@ impl<A: Actor> VClock<A> {
     /// use crdts::VClock;
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
     /// let a_op1 = a.inc("A".to_string());
-    /// a.apply(&a_op1).unwrap();
+    /// a.apply(&a_op1);
     /// let a_op2 = a.inc("A".to_string());
-    /// a.apply(&a_op2).unwrap();
+    /// a.apply(&a_op2);
     ///
     /// a.witness("A".to_string(), 0); // ignored because 2 dominates 0
     /// let b_op = b.inc("A".to_string());
@@ -209,9 +209,8 @@ impl<A: Actor> VClock<A> {
     }
 
     /// Apply a dot to the VClock
-    pub fn apply(&mut self, dot: &Dot<A>) -> Result<()> {
+    pub fn apply(&mut self, dot: &Dot<A>) {
         let _ = self.witness(dot.actor.clone(), dot.counter);
-        Ok(())
     }
 
     /// Merge another vector clock into this one, without
