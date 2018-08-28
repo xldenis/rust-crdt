@@ -1,6 +1,9 @@
-use super::*;
-
 use std::cmp::Ordering;
+
+use vclock::{Actor, Dot};
+use gcounter::GCounter;
+use traits::{CvRDT, CmRDT};
+use error::{Result, Error};
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate
@@ -12,43 +15,85 @@ use std::cmp::Ordering;
 /// # Examples
 ///
 /// ```
-/// use crdts::PNCounter;
+/// use crdts::{PNCounter, CmRDT};
+///
 /// let mut a = PNCounter::new();
-/// a.increment("A".to_string());
-/// a.increment("A".to_string());
-/// a.decrement("A".to_string());
-/// a.increment("A".to_string());
+/// let op1 = a.inc("A".to_string());
+/// a.apply(&op1);
+/// let op2 = a.inc("A".to_string());
+/// a.apply(&op2);
+/// let op3 = a.dec("A".to_string());
+/// a.apply(&op3);
+/// let op4 = a.inc("A".to_string());
+/// a.apply(&op4);
+///
 /// assert_eq!(a.value(), 2);
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct PNCounter<A: Ord + Clone + Serialize + DeserializeOwned> {
+pub struct PNCounter<A: Actor> {
     p: GCounter<A>,
     n: GCounter<A>,
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> Ord for PNCounter<A> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum Dir {
+    Pos,
+    Neg
+}
+
+/// An Op which is produced through from mutating the counter
+/// Ship these ops to other replicas to have them sync up.
+#[serde(bound(deserialize = ""))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Op<A: Actor> {
+    dot: Dot<A>,
+    dir: Dir
+}
+
+impl<A: Actor> Ord for PNCounter<A> {
     fn cmp(&self, other: &PNCounter<A>) -> Ordering {
         let (c, oc) = (self.value(), other.value());
         c.cmp(&oc)
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialOrd
+impl<A: Actor> PartialOrd
     for PNCounter<A> {
     fn partial_cmp(&self, other: &PNCounter<A>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PartialEq for PNCounter<A> {
+impl<A: Actor> PartialEq for PNCounter<A> {
     fn eq(&self, other: &PNCounter<A>) -> bool {
         let (c, oc) = (self.value(), other.value());
         c == oc
     }
 }
 
-impl<A: Ord + Clone + Serialize + DeserializeOwned> PNCounter<A> {
+impl<A: Actor> CmRDT for PNCounter<A> {
+    type Op = Op<A>;
+    type Error = Error;
+
+    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+        match op {
+            Op { dot, dir: Dir::Pos } => self.p.apply(dot),
+            Op { dot, dir: Dir::Neg } => self.n.apply(dot)
+        }
+    }
+}
+
+impl<A: Actor> CvRDT for PNCounter<A> {
+    type Error = Error;
+
+    fn merge(&mut self, other: &Self) -> Result<()> {
+        self.p.merge(&other.p)?;
+        self.n.merge(&other.n)
+    }
+}
+
+impl<A: Actor> PNCounter<A> {
     /// Produces a new `PNCounter`.
     pub fn new() -> PNCounter<A> {
         PNCounter {
@@ -58,39 +103,18 @@ impl<A: Ord + Clone + Serialize + DeserializeOwned> PNCounter<A> {
     }
 
     /// Increments a particular actor's counter.
-    pub fn increment(&mut self, actor: A) {
-        self.p.increment(actor);
+    pub fn inc(&self, actor: A) -> Op<A> {
+        Op { dot: self.p.inc(actor), dir: Dir::Pos }
     }
 
     /// Decrements a particular actor's counter.
-    pub fn decrement(&mut self, actor: A) {
-        self.n.increment(actor);
+    pub fn dec(&self, actor: A) -> Op<A> {
+        Op { dot: self.n.inc(actor), dir: Dir::Neg }
     }
 
     /// Returns the current value of this counter (P-N).
     pub fn value(&self) -> i64 {
         self.p.value() as i64 - self.n.value() as i64
-    }
-
-    /// Merge another pncounter into this one, without
-    /// regard to dominance.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crdts::PNCounter;
-    /// let (mut a, mut b, mut c) = (PNCounter::new(), PNCounter::new(), PNCounter::new());
-    /// a.increment("A".to_string());
-    /// b.increment("B".to_string());
-    /// b.increment("B".to_string());
-    /// b.decrement("A".to_string());
-    /// c.increment("B".to_string());
-    /// c.increment("B".to_string());
-    /// a.merge(b);
-    /// assert_eq!(a, c);
-    pub fn merge(&mut self, other: PNCounter<A>) {
-        self.p.merge(other.p);
-        self.n.merge(other.n);
     }
 }
 
@@ -105,29 +129,30 @@ mod tests {
     use std::collections::BTreeSet;
 
     const ACTOR_MAX: u16 = 11;
-    #[derive(Debug, Clone)]
-    enum Op {
-        Increment(i16),
-        Decrement(i16),
-    }
 
-    impl Arbitrary for Op {
-        fn arbitrary<G: Gen>(g: &mut G) -> Op {
-            if g.gen_weighted_bool(2) {
-                Op::Increment(g.gen_range(0, ACTOR_MAX) as i16)
+    impl Arbitrary for Op<i16> {
+        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+            let actor = g.gen_range(0, ACTOR_MAX) as i16;
+            let counter = g.gen_range(0, 200);
+            let dot = Dot { actor, counter };
+            
+            let dir = if g.gen_weighted_bool(2) {
+                Dir::Pos
             } else {
-                Op::Decrement(g.gen_range(0, ACTOR_MAX) as i16)
-            }
+                Dir::Neg
+            };
+
+            Op { dot, dir }
         }
 
-        fn shrink(&self) -> Box<Iterator<Item = Op>> {
+        fn shrink(&self) -> Box<Iterator<Item = Self>> {
             Box::new(vec![].into_iter())
         }
     }
 
     #[derive(Debug, Clone)]
     struct OpVec {
-        ops: Vec<Op>,
+        ops: Vec<Op<i16>>,
     }
 
     impl Arbitrary for OpVec {
@@ -160,22 +185,13 @@ mod tests {
             let mut witnesses: Vec<PNCounter<i16>> =
                 (0..i).map(|_| PNCounter::new()).collect();
             for op in ops.ops.iter() {
-                match op {
-                    &Op::Increment(actor) => {
-                        witnesses[(actor as usize % i as usize)].increment(
-                            actor,
-                        );
-                    }
-                    &Op::Decrement(actor) => {
-                        witnesses[(actor as usize % i as usize)].decrement(
-                            actor,
-                        );
-                    }
-                }
+                let index = op.dot.actor as usize % i as usize;
+                let witness = &mut witnesses[index];
+                witness.apply(op).unwrap();
             }
             let mut merged = PNCounter::new();
             for witness in witnesses.iter() {
-                merged.merge(witness.clone());
+                merged.merge(&witness).unwrap();
             }
 
             results.insert(merged.value());
@@ -204,13 +220,21 @@ mod tests {
     fn test_basic() {
         let mut a = PNCounter::new();
         assert_eq!(a.value(), 0);
-        a.increment("A".to_string());
+
+        let op1 = a.inc("A".to_string());
+        a.apply(&op1).unwrap();
         assert_eq!(a.value(), 1);
-        a.increment("A".to_string());
+
+        let op2 = a.inc("A".to_string());
+        a.apply(&op2).unwrap();
         assert_eq!(a.value(), 2);
-        a.decrement("A".to_string());
+
+        let op3 = a.dec("A".to_string());
+        a.apply(&op3).unwrap();
         assert_eq!(a.value(), 1);
-        a.increment("A".to_string());
+
+        let op4 = a.inc("A".to_string());
+        a.apply(&op4).unwrap();
         assert_eq!(a.value(), 2);
     }
 }
