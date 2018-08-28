@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use vclock::{Actor, Dot};
 use gcounter::GCounter;
 use traits::{CvRDT, CmRDT};
-use error::{Result, Error};
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate
@@ -74,9 +73,8 @@ impl<A: Actor> PartialEq for PNCounter<A> {
 
 impl<A: Actor> CmRDT for PNCounter<A> {
     type Op = Op<A>;
-    type Error = Error;
 
-    fn apply(&mut self, op: &Self::Op) -> Result<()> {
+    fn apply(&mut self, op: &Self::Op) {
         match op {
             Op { dot, dir: Dir::Pos } => self.p.apply(dot),
             Op { dot, dir: Dir::Neg } => self.n.apply(dot)
@@ -85,11 +83,9 @@ impl<A: Actor> CmRDT for PNCounter<A> {
 }
 
 impl<A: Actor> CvRDT for PNCounter<A> {
-    type Error = Error;
-
-    fn merge(&mut self, other: &Self) -> Result<()> {
-        self.p.merge(&other.p)?;
-        self.n.merge(&other.n)
+    fn merge(&mut self, other: &Self) {
+        self.p.merge(&other.p);
+        self.n.merge(&other.n);
     }
 }
 
@@ -187,11 +183,11 @@ mod tests {
             for op in ops.ops.iter() {
                 let index = op.dot.actor as usize % i as usize;
                 let witness = &mut witnesses[index];
-                witness.apply(op).unwrap();
+                witness.apply(op);
             }
             let mut merged = PNCounter::new();
             for witness in witnesses.iter() {
-                merged.merge(&witness).unwrap();
+                merged.merge(&witness);
             }
 
             results.insert(merged.value());
@@ -222,19 +218,19 @@ mod tests {
         assert_eq!(a.value(), 0);
 
         let op1 = a.inc("A".to_string());
-        a.apply(&op1).unwrap();
+        a.apply(&op1);
         assert_eq!(a.value(), 1);
 
         let op2 = a.inc("A".to_string());
-        a.apply(&op2).unwrap();
+        a.apply(&op2);
         assert_eq!(a.value(), 2);
 
         let op3 = a.dec("A".to_string());
-        a.apply(&op3).unwrap();
+        a.apply(&op3);
         assert_eq!(a.value(), 1);
 
         let op4 = a.inc("A".to_string());
-        a.apply(&op4).unwrap();
+        a.apply(&op4);
         assert_eq!(a.value(), 2);
     }
 }

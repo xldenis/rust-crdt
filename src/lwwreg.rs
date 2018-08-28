@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use error::{self, Error, Result};
-use traits::{CvRDT, CmRDT};
+use traits::{FunkyCvRDT, FunkyCmRDT};
 
 /// Trait bound alias for lwwreg vals
 pub trait Val: Debug + Clone + PartialEq + Send + Serialize + DeserializeOwned {}
@@ -40,7 +40,7 @@ impl<V: Val + Default, D: Dot + Default> Default for LWWReg<V, D> {
     }
 }
 
-impl<V: Val, D: Dot> CvRDT for LWWReg<V, D> {
+impl<V: Val, D: Dot> FunkyCvRDT for LWWReg<V, D> {
     type Error = error::Error;
 
     /// Combines two `LWWReg` instances according to the dot that
@@ -73,7 +73,7 @@ impl<V: Val, D: Dot> CvRDT for LWWReg<V, D> {
     }
 }
 
-impl<V: Val, D: Dot> CmRDT for LWWReg<V, D> {
+impl<V: Val, D: Dot> FunkyCmRDT for LWWReg<V, D> {
     type Error = error::Error;
     // LWWReg's are small enough that we can replicate the entire state as an Op
     type Op = Self;
