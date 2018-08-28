@@ -1,25 +1,60 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display};
 
 use error::{Error, Result};
 use vclock::{VClock, Dot, Actor};
 use traits::{Causal, CmRDT, CvRDT};
 
+/// A Trait alias for the possible values MVReg's may hold
 pub trait Val: Debug + Eq + Clone + Send + Serialize + DeserializeOwned {}
 impl<T: Debug + Eq + Clone + Send + Serialize + DeserializeOwned> Val for T {}
 
+/// MVReg expands to Multi-Value Register.
+/// On merge, we will keep all values for which we can't establish a causal history.
+///
+/// ```rust
+/// use crdts::{CvRDT, MVReg, Dot};
+/// let (r1, r2) = (MVReg::<String, u8>::new(), MVReg::<String, u8>::new());
+/// let op1 = r1.set("bob", Dot { actor: 123, counter: 6 });
+/// r1.apply(&op1);
+/// let op2 = r2.set("alice", Dot { actor: 111, counter: 3 });
+/// r2.apply(&op2);
+///
+/// r1.apply(&op2);
+/// assert_eq!(r1.get_owned(), (vec!["alice", "bob"], vec![(123, 6), (111, 3)].into_iter().collect()));
+/// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MVReg<V: Val, A: Actor> {
-    pub vals: Vec<(VClock<A>, V)>
+    vals: Vec<(VClock<A>, V)>
 }
 
+/// Defines the set of operations over the MVReg
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<V: Val, A: Actor> {
-    Put { ctx: VClock<A>, val: V }
+    /// Put a value under some context
+    Put {
+        /// context of the operation
+        ctx: VClock<A>,
+        /// the value to put
+        val: V
+    }
+}
+
+impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "|")?;
+        for (i, (ctx, val)) in self.vals.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{{{}}}@{}", val, ctx)?;
+        }
+        write!(f, "|")
+    }
 }
 
 impl<V: Val, A: Actor> PartialEq for MVReg<V, A> {
@@ -143,28 +178,33 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
 }
 
 impl<V: Val, A: Actor> MVReg<V, A> {
+    /// Construct a new empty MVReg
     pub fn new() -> Self {
         MVReg::default()
     }
 
+    /// Set the value with a dot
     pub fn set(&self, val: impl Into<V>, dot: &Dot<A>) -> Op<V, A> {
         let mut ctx = self.context();
         ctx.apply(&dot).unwrap();
         Op::Put { ctx, val: val.into() }
     }
 
+    /// Returns all values stored in the register with their causal context
     pub fn get_owned(self) -> (Vec<V>, VClock<A>) {
         let ctx = self.context();
         let concurrent_vals = self.vals.into_iter().map(|(_, v)| v).collect();
         (concurrent_vals, ctx)
     }
 
+    /// Returns a ref to values stored in the register with their causal context
     pub fn get(&self) -> (Vec<&V>, VClock<A>) {
         let ctx = self.context();
         let concurrent_vals = self.vals.iter().map(|(_, v)| v).collect();
         (concurrent_vals, ctx)
     }
 
+    /// Returns th causal context for the register
     pub fn context(&self) -> VClock<A> {
         self.vals.iter()
             .fold(VClock::new(), |mut accum_clock, (c, _)| {

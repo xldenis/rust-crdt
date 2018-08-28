@@ -42,6 +42,8 @@ enum Dir {
     Neg
 }
 
+/// An Op which is produced through from mutating the counter
+/// Ship these ops to other replicas to have them sync up.
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Op<A: Actor> {

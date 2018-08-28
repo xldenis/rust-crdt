@@ -32,7 +32,9 @@ impl<A: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug> Actor 
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dot<A: Actor> {
+    /// The actor identifier
     pub actor: A,
+    /// The current version of this actor
     pub counter: Counter
 }
 

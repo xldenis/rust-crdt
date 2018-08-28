@@ -186,6 +186,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         }
     }
 
+    /// Returns the next dot for the given actor
     pub fn dot(&self, actor: impl Into<A>) -> Dot<A> {
         let actor = actor.into();
         let counter = self.clock.get(&actor) + 1;
