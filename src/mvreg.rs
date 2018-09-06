@@ -3,26 +3,35 @@ use serde::Serialize;
 
 use std::fmt::{self, Debug, Display};
 
-use vclock::{VClock, Dot, Actor};
+use vclock::{VClock, Actor};
 use traits::{Causal, CmRDT, CvRDT};
 
 /// A Trait alias for the possible values MVReg's may hold
-pub trait Val: Debug + Eq + Clone + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Eq + Clone + Send + Serialize + DeserializeOwned> Val for T {}
+pub trait Val: Debug + Clone + Send + Serialize + DeserializeOwned {}
+impl<T: Debug + Clone + Send + Serialize + DeserializeOwned> Val for T {}
 
-/// MVReg expands to Multi-Value Register.
-/// On merge, we will keep all values for which we can't establish a causal history.
+/// MVReg (Multi-Value Register)
+/// On concurrent writes, we will keep all values for which
+/// we can't establish a causal history.
 ///
 /// ```rust
-/// use crdts::{CmRDT, MVReg, Dot};
-/// let (mut r1, mut r2) = (MVReg::<String, u8>::new(), MVReg::<String, u8>::new());
+/// use crdts::{CmRDT, MVReg, Dot, VClock};
+/// let mut r1 = MVReg::<String, u8>::new();
+/// let mut r2 = MVReg::<String, u8>::new();
+///
 /// let op1 = r1.set("bob", &Dot { actor: 123, counter: 6 });
 /// r1.apply(&op1);
 /// let op2 = r2.set("alice", &Dot { actor: 111, counter: 3 });
 /// r2.apply(&op2);
-///
+/// 
 /// r1.apply(&op2);
-/// assert_eq!(r1.get_owned(), (vec!["bob".into(), "alice".into()], vec![(123, 6), (111, 3)].into_iter().collect()));
+/// 
+/// let final_vals = vec!["bob".into(), "alice".into()];
+/// let final_ctx: VClock<_> = vec![(123, 6), (111, 3)]
+///       .into_iter()
+///       .collect();
+/// 
+/// assert_eq!(r1.get_owned(), (final_vals, final_ctx));
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +52,23 @@ pub enum Op<V: Val, A: Actor> {
     }
 }
 
+#[derive(Debug)]
+pub struct ReadContext<V, A: Actor> {
+    clock: VClock<A>,
+    vals: Vec<V>
+}
+
+pub struct WriteContext<A: Actor>(VClock<A>);
+
+impl<V, A: Actor> ReadContext<V, A> {
+    fn derive_write_context(&self, actor: A) -> WriteContext<A> {
+        let mut write_clock: VClock<A> = self.clock.clone();
+        let inc_op = write_clock.inc(actor);
+        write_clock.apply(&inc_op);
+        WriteContext(write_clock)
+    }
+}
+
 impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "|")?;
@@ -56,7 +82,7 @@ impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
     }
 }
 
-impl<V: Val, A: Actor> PartialEq for MVReg<V, A> {
+impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
     fn eq(&self, other: &Self) -> bool {
         for dot in self.vals.iter() {
             let mut num_found = other.vals.iter().filter(|d| d == &dot).count();
@@ -80,7 +106,7 @@ impl<V: Val, A: Actor> PartialEq for MVReg<V, A> {
     }
 }
 
-impl<V: Val, A: Actor> Eq for MVReg<V, A> {}
+impl<V: Val + Eq, A: Actor> Eq for MVReg<V, A> {}
 
 impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
     fn truncate(&mut self, clock: &VClock<A>) {
@@ -122,10 +148,8 @@ impl<V: Val, A: Actor> CvRDT for MVReg<V, A> {
                 .count();
             if num_dominating == 0 {
                 let mut is_new = true;
-                for (existing_c, existing_v) in vals.iter() {
+                for (existing_c, _) in vals.iter() {
                     if existing_c == clock {
-                        // sanity check
-                        assert_eq!(val, existing_v);
                         is_new = false;
                         break;
                     }
@@ -179,25 +203,27 @@ impl<V: Val, A: Actor> MVReg<V, A> {
         MVReg::default()
     }
 
-    /// Set the value with a dot
-    pub fn set(&self, val: impl Into<V>, dot: &Dot<A>) -> Op<V, A> {
-        let mut ctx = self.context();
-        ctx.apply(&dot);
-        Op::Put { ctx, val: val.into() }
+    /// Set the value of a register under a context
+    pub fn set(&self, val: impl Into<V>, ctx: &WriteContext<A>) -> Op<V, A> {
+        Op::Put { ctx: ctx.0.clone(), val: val.into() }
     }
 
     /// Returns all values stored in the register with their causal context
-    pub fn get_owned(self) -> (Vec<V>, VClock<A>) {
-        let ctx = self.context();
+    pub fn get_owned(self) -> ReadContext<V, A> {
+        let clock = self.context();
         let concurrent_vals = self.vals.into_iter().map(|(_, v)| v).collect();
-        (concurrent_vals, ctx)
+        ReadContext {
+            clock: clock,
+            vals: concurrent_vals
+        }
     }
 
     /// Returns a ref to values stored in the register with their causal context
-    pub fn get(&self) -> (Vec<&V>, VClock<A>) {
-        let ctx = self.context();
-        let concurrent_vals = self.vals.iter().map(|(_, v)| v).collect();
-        (concurrent_vals, ctx)
+    pub fn get(&self) -> ReadContext<&V, A> {
+        ReadContext {
+            clock: self.context(),
+            vals: self.vals.iter().map(|(_, v)| v).collect()
+        }
     }
 
     /// Returns th causal context for the register
@@ -217,6 +243,8 @@ mod tests {
     use std::fmt;
     use quickcheck::{Arbitrary, Gen, TestResult};
 
+    use vclock::Dot;
+
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     struct TActor(u8);
     
@@ -226,7 +254,7 @@ mod tests {
         ops: Vec<Op<V, A>>
     }
 
-    impl<V: Val, A: Actor> TestReg<V, A> {
+    impl<V: Val + Eq, A: Actor> TestReg<V, A> {
         fn incompat(&self, other: &Self) -> bool {
             for (c1, v1) in self.reg.vals.iter() {
                 for (c2, v2) in other.reg.vals.iter() {
@@ -272,8 +300,8 @@ mod tests {
             for _ in 0..num_ops {
                 let val = V::arbitrary(g);
                 let actor = A::arbitrary(g);
-                let dot = reg.context().inc(actor);
-                let op = reg.set(val, &dot);
+                let ctx = reg.get().derive_write_context(actor);
+                let op = reg.set(val, &ctx);
                 reg.apply(&op);
                 ops.push(op);
             }
@@ -313,57 +341,84 @@ mod tests {
     #[test]
     fn test_set_should_not_mutate_reg() {
         let reg = MVReg::<u8, u8>::new();
-        let op = reg.set(32, &Dot { actor: 1, counter: 2 });
+        let ctx = reg.get().derive_write_context(1);
+        let op = reg.set(32, &ctx);
         assert_eq!(reg, MVReg::new());
         let mut reg = reg;
         reg.apply(&op);
 
-        let (vals, ctx) = reg.get();
-        assert_eq!(vals, vec![&32]);
-        assert_eq!(ctx, VClock::from(Dot { actor: 1, counter: 2 }));
+        let read_ctx = reg.get();
+        assert_eq!(read_ctx.vals, vec![&32]);
+        assert_eq!(read_ctx.clock, VClock::from(Dot { actor: 1, counter: 1 }));
     }
 
     #[test]
     fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
         // this is important to prevent because it breaks commutativity
-        let mut r1 = MVReg::new();
+        let mut r1: MVReg<u8, u8> = MVReg::new();
         let mut r2 = MVReg::new();
 
-        let op1 = r1.set(23, &Dot { actor: 4, counter: 1 });
-        let op2 = r2.set(23, &Dot { actor: 7, counter: 1 });
+        let ctx_4 = r1.get().derive_write_context(4);
+        let ctx_7 = r2.get().derive_write_context(7);
+
+        let op1 = r1.set(23, &ctx_4);
+        let op2 = r2.set(23, &ctx_7);
         r1.apply(&op1);
         r2.apply(&op2);
 
         r1.merge(&r2);
-        assert_eq!(r1.get(), (vec![&23, &23], VClock::from(vec![(4, 1), (7, 1)])));
+
+        let read_ctx = r1.get();
+        assert_eq!(read_ctx.vals, vec![&23, &23]);
+        assert_eq!(
+            read_ctx.clock,
+            VClock::from(vec![(4, 1), (7, 1)])
+        );
     }
 
     #[test]
-    fn test_concurrent_update_with_same_value_collapse_on_apply() {
+    fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
         // this is important to prevent because it breaks commutativity
-        let mut r1 = MVReg::new();
+        let mut r1: MVReg<u8, u8> = MVReg::new();
         let r2 = MVReg::new();
 
-        let op1 = r1.set(23, &Dot { actor: 4, counter: 1 });
-        r1.apply(&op1);
-        let op2 = r2.set(23, &Dot { actor: 7, counter: 1 });
+        let ctx_4 = r1.get().derive_write_context(4);
+        let ctx_7 = r2.get().derive_write_context(7);
 
+        let op1 = r1.set(23, &ctx_4);
+        r1.apply(&op1);
+        let op2 = r2.set(23, &ctx_7);
         r1.apply(&op2);
-        assert_eq!(r1.get(), (vec![&23, &23], VClock::from(vec![(4, 1), (7, 1)])));
+
+        let read_ctx = r1.get();
+        assert_eq!(read_ctx.vals, vec![&23, &23]);
+        assert_eq!(
+            read_ctx.clock,
+            VClock::from(vec![(4, 1), (7, 1)])
+        );
     }
 
     #[test]
     fn test_multi_get() {
         let mut r1 = MVReg::<u8, u8>::new();
         let mut r2 = MVReg::<u8, u8>::new();
-        let op1 = r1.set(32, &Dot { actor: 1, counter: 1 });
-        let op2 = r2.set(82, &Dot { actor: 2, counter: 1 });
+        
+        let ctx_1 = r1.get().derive_write_context(1);
+        let ctx_2 = r2.get().derive_write_context(2);
+
+        let op1 = r1.set(32, &ctx_1);
+        let op2 = r2.set(82, &ctx_2);
+
         r1.apply(&op1);
         r2.apply(&op2);
 
         r1.merge(&r2);
-        let (vals, _) = r1.get();
-        assert!(vals == vec![&32, &82] || vals == vec![&82, &32]);
+        let read_ctx = r1.get();
+        
+        assert!(
+            read_ctx.vals == vec![&32, &82] ||
+                read_ctx.vals == vec![&82, &32]
+        );
     }
 
     #[test]
@@ -395,17 +450,12 @@ mod tests {
 
         fn prop_set_with_dot_from_get_ctx(r: TestReg<u8, TActor>, a: TActor) -> bool {
             let mut reg = r.reg;
-            let (_, ctx) = reg.get();
-            let counter = ctx.get(&a) + 1;
-            let dot = Dot {
-                actor: a,
-                counter
-            };
-            let op = reg.set(23, &dot);
+            let write_ctx = reg.get().derive_write_context(a);
+            let op = reg.set(23, &write_ctx);
             reg.apply(&op);
 
-            let (vals, _) = reg.get();
-            vals == vec![&23]
+            let next_read_ctx = reg.get();
+            next_read_ctx.vals == vec![&23]
         }
         
         fn prop_merge_idempotent(r: TestReg<u8, TActor>) -> bool {
