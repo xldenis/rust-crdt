@@ -343,10 +343,10 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 
 }
 
-// #[cfg(test)]
-// mod tests {
+#[cfg(test)]
+mod tests {
 //     use super::*;
-// 
+
 //     use quickcheck::{Arbitrary, Gen, TestResult};
 // 
 //     use mvreg::{self, MVReg};
@@ -359,7 +359,7 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 // 
 //     #[derive(Debug, Clone)]
 //     struct OpVec(TestActor, Vec<TestOp>);
-// 
+
 //     impl<K, V, A> Arbitrary for Op<K, V, A> where
 //         K: Key + Arbitrary,
 //         V: Val<A> + Arbitrary,
@@ -1263,5 +1263,4 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 //             m == m_snapshot
 //         }
 //     }
-// }
-// 
+}

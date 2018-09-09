@@ -1,6 +1,6 @@
 extern crate crdts;
 
-use crdts::{CmRDT};
+// use crdts::{CmRDT};
 
 fn main() {
     let mut vclock = crdts::VClock::new();
