@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 
 use traits::{CvRDT, CmRDT, Causal};
 use vclock::{VClock, Dot, Actor};
-use ctx::{ReadCtx, WriteCtx};
+use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Trait bound alias for members in a set
 pub trait Member: Debug + Ord + Clone + Send + Serialize + DeserializeOwned {}
@@ -177,12 +177,12 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     }
 
     /// Add a single element.
-    pub fn add(&self, member: impl Into<M>, ctx: WriteCtx<A>) -> Op<M, A> {
+    pub fn add(&self, member: impl Into<M>, ctx: AddCtx<A>) -> Op<M, A> {
         Op::Add { dot: ctx.dot, member: member.into() }
     }
 
     /// Remove a member with a witnessing ctx.
-    pub fn remove(&self, member: impl Into<M>, ctx: WriteCtx<A>) -> Op<M, A> {
+    pub fn remove(&self, member: impl Into<M>, ctx: RmCtx<A>) -> Op<M, A> {
         Op::Rm { clock: ctx.clock, member: member.into() }
     }
 
@@ -206,17 +206,22 @@ impl<M: Member, A: Actor> Orswot<M, A> {
 
     /// Check if the set contains a member
     pub fn contains(&self, member: &M) -> ReadCtx<bool, A> {
-        let member_exists = self.entries.contains_key(&member);
+        let member_clock_opt = self.entries.get(&member);
+        let exists = member_clock_opt.is_some();
         ReadCtx {
-            clock: self.clock.clone(),
-            val: member_exists
+            add_clock: self.clock.clone(),
+            rm_clock: member_clock_opt
+                .cloned()
+                .unwrap_or_else(|| VClock::new()),
+            val: exists
         }
     }
 
     /// Retrieve the current members.
     pub fn value(&self) -> ReadCtx<Vec<M>, A> {
         ReadCtx {
-            clock: self.clock.clone(),
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
             val: self.entries.keys().cloned().collect()
         }
     }
@@ -354,7 +359,7 @@ mod tests {
                     &Op::Add { member, actor } => {
                         let witness = &mut witnesses[(actor % i) as usize];
                         let read_ctx = witness.value();
-                        let op = witness.add(member, read_ctx.derive_write_ctx(actor));
+                        let op = witness.add(member, read_ctx.derive_add_ctx(actor));
                         witness.apply(&op);
                     }
                     &Op::Remove {
@@ -364,7 +369,8 @@ mod tests {
                     } => {
                         let witness = &mut witnesses[(actor % i) as usize];
                         let read_ctx = witness.value();
-                        let op = witness.remove(member, read_ctx.derive_write_ctx(actor));
+                        let op = witness
+                            .remove(member, read_ctx.derive_rm_ctx());
                         witness.apply(&op);
                     },
                     &Op::Remove {
@@ -418,8 +424,8 @@ mod tests {
         let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         let a_read_ctx = a.value();
         let b_read_ctx = b.value();
-        let op_a = a.add(1, a_read_ctx.derive_write_ctx(1));
-        let op_b = b.add(2, b_read_ctx.derive_write_ctx(1));
+        let op_a = a.add(1, a_read_ctx.derive_add_ctx(1));
+        let op_b = b.add(2, b_read_ctx.derive_add_ctx(1));
         a.apply(&op_a);
         b.apply(&op_b);
         a.merge(&b);
@@ -434,11 +440,11 @@ mod tests {
             .into_iter()
             .collect();
         let a_read_ctx = a.value();
-        let a_op1 = a.add("element", a_read_ctx.derive_write_ctx("actor 7"));
+        let a_op1 = a.add("element", a_read_ctx.derive_add_ctx("actor 7"));
         a.apply(&a_op1);
         b.apply_remove("element", &ctx);
         
-        let a_op2 = a.add("element", a.value().derive_write_ctx("actor 1"));
+        let a_op2 = a.add("element", a.value().derive_add_ctx("actor 1"));
         a.apply(&a_op2);
 
         a.merge(&b);
@@ -456,14 +462,14 @@ mod tests {
         let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
 
         let b_read_ctx = b.value();
-        let b_op1 = b.add("element 1", b_read_ctx.derive_write_ctx(5));
+        let b_op1 = b.add("element 1", b_read_ctx.derive_add_ctx(5));
         b.apply(&b_op1);
 
         // remove with a future context
         b.apply_remove("element 1", &Dot { actor: 5, counter: 4 }.into());
         
         let a_read_ctx = a.value();
-        let a_op = a.add("element 4", a_read_ctx.derive_write_ctx(6));
+        let a_op = a.add("element 4", a_read_ctx.derive_add_ctx(6));
         a.apply(&a_op);
         
         // remove with a future context
@@ -483,7 +489,7 @@ mod tests {
         let (mut a, mut b, mut c) =
             (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         // add element 5 from witness 1
-        let op = a.add(5, a.value().derive_write_ctx(1));
+        let op = a.add(5, a.value().derive_add_ctx(1));
         a.apply(&op);
 
         // on another clock, remove 5 with an advanced clock for witnesses 1 and 4
@@ -513,9 +519,9 @@ mod tests {
     fn merge_clocks_of_identical_entries() {
         let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
         // add element 1 with witnesses 3 and 7
-        let a_op = a.add(1, a.value().derive_write_ctx(3));
+        let a_op = a.add(1, a.value().derive_add_ctx(3));
         a.apply(&a_op);
-        let b_op = a.add(1, b.value().derive_write_ctx(7));
+        let b_op = a.add(1, b.value().derive_add_ctx(7));
         b.apply(&b_op);
         a.merge(&b);
         assert_eq!(a.value().val, vec![1]);
@@ -531,10 +537,10 @@ mod tests {
     #[test]
     fn test_disjoint_merge() {
         let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("bar", a.value().derive_write_ctx("A"));
+        let a_op = a.add("bar", a.value().derive_add_ctx("A"));
         a.apply(&a_op);
         assert_eq!(a.value().val, vec!["bar".to_string()]);
-        let b_op = b.add("baz", b.value().derive_write_ctx("B"));
+        let b_op = b.add("baz", b.value().derive_add_ctx("B"));
         b.apply(&b_op);
         assert_eq!(b.value().val, vec!["baz".to_string()]);
         let mut c = a.clone();
@@ -555,7 +561,7 @@ mod tests {
     #[test]
     fn test_present_but_removed() {
         let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("Z", a.value().derive_write_ctx("A"));
+        let a_op = a.add("Z", a.value().derive_add_ctx("A"));
         a.apply(&a_op);
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
@@ -564,7 +570,7 @@ mod tests {
         a.apply_remove("Z", &a_rm_ctx);
         assert_eq!(a.deferred.len(), 0);
 
-        let b_op = b.add("Z", b.value().derive_write_ctx("B"));
+        let b_op = b.add("Z", b.value().derive_add_ctx("B"));
         b.apply(&b_op);
 
         // Replicate B to A, so now A has a Z, the one with a Dot of
@@ -586,9 +592,9 @@ mod tests {
     #[test]
     fn test_no_dots_left_test() {
         let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
-        let a_op = a.add("Z", a.value().derive_write_ctx(1));
+        let a_op = a.add("Z", a.value().derive_add_ctx(1));
         a.apply(&a_op);
-        let b_op = b.add("Z", b.value().derive_write_ctx(2));
+        let b_op = b.add("Z", b.value().derive_add_ctx(2));
         b.apply(&b_op);
         let c = a.clone();
         let a_rm_ctx = a.entries.get(&"Z".to_string()).unwrap().clone();
@@ -638,44 +644,52 @@ mod tests {
     #[test]
     fn test_dead_node_update() {
         let mut a = Orswot::<String, u8>::new();
-        let a_op = a.add("A", a.value().derive_write_ctx(1));
+        let a_op = a.add("A", a.value().derive_add_ctx(1));
         assert_eq!(a_op, super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: "A".into() });
         a.apply(&a_op);
         assert_eq!(a.entries.get(&"A".to_string()).unwrap(), &VClock::from(Dot { actor: 1u8, counter: 1 }));
 
         let mut b = a.clone();
-        let b_op = b.add("B", b.value().derive_write_ctx(2));
+        let b_op = b.add("B", b.value().derive_add_ctx(2));
         b.apply(&b_op);
-        let bctx = b.value().clock;
+        let bctx = b.value().add_clock;
         assert_eq!(bctx, vec![(1, 1), (2, 1)].into());
         a.apply_remove("A", &bctx);
         assert_eq!(a.value().val, Vec::<String>::new());
     }
 
-//    #[test]
-//    fn test_reset_remove_semantics() {
-//        use map::Map;
-//        let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
-//
-//        let op1 = m1.update(101, m1.value().derive_write_ctx(75), |set, dot| set.add(1, dot.clone()));
-//        m1.apply(&op1);
-//
-//        let mut m2 = m1.clone();
-//
-//        let (_, ctx) = m1.get(&101).unwrap();
-//        let op2 = m1.rm(101, ctx);
-//        m1.apply(&op2);
-//        let op3 = m2.update(101, m2.value().derive_write_ctx(93), |set, dot| set.add(2, dot.clone()));
-//        m2.apply(&op3);
-//
-//        assert_eq!(m1.get(&101), None);
-//        assert_eq!(m2.get(&101).unwrap().0.value().val, vec![1, 2]);
-//
-//        let snapshot = m1.clone();
-//        m1.merge(&m2);
-//        m2.merge(&snapshot);
-//
-//        assert_eq!(m1, m2);
-//        assert_eq!(m1.get(&101).unwrap().0.value().val, vec![2]);
-//    }
+    #[test]
+    fn test_reset_remove_semantics() {
+        use map::Map;
+        let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
+
+        let op1 = m1.update(
+            101,
+            m1.get(&101).derive_add_ctx(75),
+            |set, ctx| set.add(1, ctx.clone())
+        );
+        m1.apply(&op1);
+
+        let mut m2 = m1.clone();
+
+        let read_ctx = m1.get(&101);
+        let op2 = m1.rm(101, read_ctx.derive_rm_ctx());
+        m1.apply(&op2);
+        let op3 = m2.update(
+            101,
+            m2.get(&101).derive_add_ctx(93),
+            |set, ctx| set.add(2, ctx.clone())
+        );
+        m2.apply(&op3);
+
+        assert_eq!(m1.get(&101).val, None);
+        assert_eq!(m2.get(&101).val.unwrap().value().val, vec![1, 2]);
+
+        let snapshot = m1.clone();
+        m1.merge(&m2);
+        m2.merge(&snapshot);
+
+        assert_eq!(m1, m2);
+        assert_eq!(m1.get(&101).val.unwrap().value().val, vec![2]);
+    }
 }

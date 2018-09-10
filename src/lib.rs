@@ -10,7 +10,7 @@ pub use mvreg::MVReg;
 pub use orswot::Orswot;
 pub use pncounter::PNCounter;
 pub use map::Map;
-pub use ctx::{ReadCtx, WriteCtx};
+pub use ctx::{ReadCtx, AddCtx, RmCtx};
 pub use vclock::{VClock, Dot, Actor};
 pub use traits::{CvRDT, CmRDT, Causal};
 
@@ -58,7 +58,7 @@ use serde::de::DeserializeOwned;
 /// ```
 /// use crdts::{Orswot, CmRDT, to_binary, from_binary};
 /// let mut a: Orswot<u8, u8> = Orswot::new();
-/// let op = a.add(1, a.value().derive_write_ctx(1));
+/// let op = a.add(1, a.value().derive_add_ctx(1));
 /// a.apply(&op);
 /// let encoded = to_binary(&a);
 /// let decoded = from_binary(encoded).unwrap();
@@ -75,7 +75,7 @@ pub fn to_binary<A: Serialize>(s: &A) -> Vec<u8> {
 /// ```
 /// use crdts::{Orswot, CmRDT, to_binary, from_binary};
 /// let mut a: Orswot<u8, u8> = Orswot::new();
-/// let op = a.add(1, a.value().derive_write_ctx(1));
+/// let op = a.add(1, a.value().derive_add_ctx(1));
 /// a.apply(&op);
 /// let encoded = to_binary(&a);
 /// let decoded = from_binary(encoded).unwrap();

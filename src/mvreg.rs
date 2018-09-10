@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::fmt::{self, Debug, Display};
 
 use vclock::{VClock, Actor};
-use ctx::{ReadCtx, WriteCtx};
+use ctx::{ReadCtx, AddCtx};
 use traits::{Causal, CmRDT, CvRDT};
 
 /// A Trait alias for the possible values MVReg's may hold
@@ -19,13 +19,13 @@ impl<T: Debug + Clone + Send + Serialize + DeserializeOwned> Val for T {}
 /// use crdts::{CmRDT, MVReg, Dot, VClock};
 /// let mut r1 = MVReg::<String, u8>::new();
 /// let mut r2 = r1.clone();
-/// let r1_read_ctx = r1.clone().read();
-/// let r2_read_ctx = r2.clone().read();
+/// let r1_read_ctx = r1.read();
+/// let r2_read_ctx = r2.read();
 ///
-/// let op1 = r1.set("bob", r1_read_ctx.derive_write_ctx(123));
+/// let op1 = r1.set("bob", r1_read_ctx.derive_add_ctx(123));
 /// r1.apply(&op1);
 ///
-/// let op2 = r2.set("alice", r2_read_ctx.derive_write_ctx(111));
+/// let op2 = r2.set("alice", r2_read_ctx.derive_add_ctx(111));
 /// r2.apply(&op2);
 ///
 /// r1.apply(&op2); // we replicate op2 to r1
@@ -33,7 +33,7 @@ impl<T: Debug + Clone + Send + Serialize + DeserializeOwned> Val for T {}
 /// let read_ctx = r1.read();
 /// assert_eq!(read_ctx.val, vec!["bob".to_string(), "alice".to_string()]);
 /// assert_eq!(
-///     read_ctx.clock,
+///     read_ctx.add_clock,
 ///     vec![(123, 1), (111, 1)]
 ///       .into_iter()
 ///       .collect()
@@ -193,16 +193,21 @@ impl<V: Val, A: Actor> MVReg<V, A> {
     }
 
     /// Set the value of the register
-    pub fn set(&self, val: impl Into<V>, ctx: WriteCtx<A>) -> Op<V, A> {
+    pub fn set(&self, val: impl Into<V>, ctx: AddCtx<A>) -> Op<V, A> {
         Op::Put { clock: ctx.clock, val: val.into() }
     }
 
     /// Consumes the register and returns the values
-    pub fn read(self) -> ReadCtx<Vec<V>, A> {
-        let clock = self.clock();
-        let concurrent_vals = self.vals.into_iter().map(|(_, v)| v).collect();
+    pub fn read(&self) -> ReadCtx<Vec<V>, A> {
+        let clock = self.clock().clone();
+        let concurrent_vals = self.vals
+            .iter()
+            .cloned()
+            .map(|(_, v)| v)
+            .collect();
         ReadCtx {
-            clock: clock,
+            add_clock: clock.clone(),
+            rm_clock: clock,
             val: concurrent_vals
         }
     }
@@ -281,7 +286,7 @@ mod tests {
             for _ in 0..num_ops {
                 let val = V::arbitrary(g);
                 let actor = A::arbitrary(g);
-                let ctx = reg.clone().read().derive_write_ctx(actor);
+                let ctx = reg.read().derive_add_ctx(actor);
                 let op = reg.set(val, ctx);
                 reg.apply(&op);
                 ops.push(op);
@@ -322,7 +327,7 @@ mod tests {
     #[test]
     fn test_set_should_not_mutate_reg() {
         let reg = MVReg::<u8, u8>::new();
-        let ctx = reg.clone().read().derive_write_ctx(1);
+        let ctx = reg.read().derive_add_ctx(1);
         let op = reg.set(32, ctx);
         assert_eq!(reg, MVReg::new());
         let mut reg = reg;
@@ -330,7 +335,7 @@ mod tests {
 
         let read_ctx = reg.read();
         assert_eq!(read_ctx.val, vec![32]);
-        assert_eq!(read_ctx.clock, VClock::from(Dot { actor: 1, counter: 1 }));
+        assert_eq!(read_ctx.add_clock, VClock::from(Dot { actor: 1, counter: 1 }));
     }
 
     #[test]
@@ -339,8 +344,8 @@ mod tests {
         let mut r1: MVReg<u8, u8> = MVReg::new();
         let mut r2 = MVReg::new();
 
-        let ctx_4 = r1.clone().read().derive_write_ctx(4);
-        let ctx_7 = r2.clone().read().derive_write_ctx(7);
+        let ctx_4 = r1.read().derive_add_ctx(4);
+        let ctx_7 = r2.read().derive_add_ctx(7);
 
         let op1 = r1.set(23, ctx_4);
         let op2 = r2.set(23, ctx_7);
@@ -352,7 +357,7 @@ mod tests {
         let read_ctx = r1.read();
         assert_eq!(read_ctx.val, vec![23, 23]);
         assert_eq!(
-            read_ctx.clock,
+            read_ctx.add_clock,
             VClock::from(vec![(4, 1), (7, 1)])
         );
     }
@@ -363,8 +368,8 @@ mod tests {
         let mut r1: MVReg<u8, u8> = MVReg::new();
         let r2 = MVReg::new();
 
-        let ctx_4 = r1.clone().read().derive_write_ctx(4);
-        let ctx_7 = r2.clone().read().derive_write_ctx(7);
+        let ctx_4 = r1.read().derive_add_ctx(4);
+        let ctx_7 = r2.read().derive_add_ctx(7);
 
         let op1 = r1.set(23, ctx_4);
         r1.apply(&op1);
@@ -374,7 +379,7 @@ mod tests {
         let read_ctx = r1.read();
         assert_eq!(read_ctx.val, vec![23, 23]);
         assert_eq!(
-            read_ctx.clock,
+            read_ctx.add_clock,
             VClock::from(vec![(4, 1), (7, 1)])
         );
     }
@@ -384,8 +389,8 @@ mod tests {
         let mut r1 = MVReg::<u8, u8>::new();
         let mut r2 = MVReg::<u8, u8>::new();
         
-        let ctx_1 = r1.clone().read().derive_write_ctx(1);
-        let ctx_2 = r2.clone().read().derive_write_ctx(2);
+        let ctx_1 = r1.read().derive_add_ctx(1);
+        let ctx_2 = r2.read().derive_add_ctx(2);
 
         let op1 = r1.set(32, ctx_1);
         let op2 = r2.set(82, ctx_2);
@@ -431,7 +436,7 @@ mod tests {
 
         fn prop_set_with_ctx_from_read(r: TestReg<u8, TActor>, a: TActor) -> bool {
             let mut reg = r.reg;
-            let write_ctx = reg.clone().read().derive_write_ctx(a);
+            let write_ctx = reg.read().derive_add_ctx(a);
             let op = reg.set(23, write_ctx);
             reg.apply(&op);
 
