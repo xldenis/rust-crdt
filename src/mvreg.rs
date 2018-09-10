@@ -65,7 +65,7 @@ impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{{{}}}@{}", val, ctx)?;
+            write!(f, "{}@{}", val, ctx)?;
         }
         write!(f, "|")
     }

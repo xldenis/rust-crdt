@@ -440,11 +440,11 @@ mod tests {
             .into_iter()
             .collect();
         let a_read_ctx = a.value();
-        let a_op1 = a.add("element", a_read_ctx.derive_add_ctx("actor 7"));
+        let a_op1 = a.add("element", a_read_ctx.derive_add_ctx("actor 7".to_string()));
         a.apply(&a_op1);
         b.apply_remove("element", &ctx);
         
-        let a_op2 = a.add("element", a.value().derive_add_ctx("actor 1"));
+        let a_op2 = a.add("element", a.value().derive_add_ctx("actor 1".to_string()));
         a.apply(&a_op2);
 
         a.merge(&b);
@@ -537,10 +537,10 @@ mod tests {
     #[test]
     fn test_disjoint_merge() {
         let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("bar", a.value().derive_add_ctx("A"));
+        let a_op = a.add("bar", a.value().derive_add_ctx("A".to_string()));
         a.apply(&a_op);
         assert_eq!(a.value().val, vec!["bar".to_string()]);
-        let b_op = b.add("baz", b.value().derive_add_ctx("B"));
+        let b_op = b.add("baz", b.value().derive_add_ctx("B".to_string()));
         b.apply(&b_op);
         assert_eq!(b.value().val, vec!["baz".to_string()]);
         let mut c = a.clone();
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn test_present_but_removed() {
         let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("Z", a.value().derive_add_ctx("A"));
+        let a_op = a.add("Z", a.value().derive_add_ctx("A".to_string()));
         a.apply(&a_op);
         // Replicate it to C so A has 'Z'->{e, 1}
         let c = a.clone();
@@ -570,7 +570,7 @@ mod tests {
         a.apply_remove("Z", &a_rm_ctx);
         assert_eq!(a.deferred.len(), 0);
 
-        let b_op = b.add("Z", b.value().derive_add_ctx("B"));
+        let b_op = b.add("Z", b.value().derive_add_ctx("B".to_string()));
         b.apply(&b_op);
 
         // Replicate B to A, so now A has a Z, the one with a Dot of
