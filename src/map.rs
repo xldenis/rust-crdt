@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 
 use traits::{Causal, CvRDT, CmRDT};
 use vclock::{Dot, VClock, Actor};
+use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Key Trait alias to reduce redundancy in type decl.
 pub trait Key: Debug + Ord + Clone + Send + Serialize + DeserializeOwned {}
@@ -42,8 +43,8 @@ impl<A, T> Val<A> for T where
 ///
 /// let op = friends.update(
 ///     "alice",
-///     friends.dot(a1),
-///     |set, dot| set.add("bob", dot.clone())
+///     friends.get(&"alice".to_string()).derive_add_ctx(a1),
+///     |set, ctx| set.add("bob", ctx)
 /// );
 /// friends.apply(&op);
 ///
@@ -53,20 +54,19 @@ impl<A, T> Val<A> for T where
 /// // now the two maps diverge. the original map will remove "alice" from the map
 /// // while the replica map will update the "alice" friend set to include "clyde".
 ///
-/// let (_, rm_ctx) = friends.get(&"alice".to_string()).unwrap();
-/// let rm_op = friends.rm("alice", rm_ctx);
+/// let rm_op = friends.rm("alice", friends.get(&"alice".to_string()).derive_rm_ctx());
 /// friends.apply(&rm_op);
 ///
 /// let replica_op = friends_replica.update(
 ///     "alice",
-///     friends_replica.dot(a2),
-///     |set, dot| set.add("clyde", dot.clone())
+///     friends_replica.get(&"alice".into()).derive_add_ctx(a2),
+///     |set, ctx| set.add("clyde", ctx)
 /// );
 /// friends_replica.apply(&replica_op);
 ///
-/// assert_eq!(friends.get(&"alice".into()), None);
+/// assert_eq!(friends.get(&"alice".into()).val, None);
 /// assert_eq!(
-///     friends_replica.get(&"alice".into()).map(|(s, _)| s.value()),
+///     friends_replica.get(&"alice".into()).val.map(|set| set.value().val),
 ///     Some(vec!["bob".to_string(), "clyde".to_string()])
 /// );
 ///
@@ -74,8 +74,8 @@ impl<A, T> Val<A> for T where
 ///
 /// friends.merge(&friends_replica);
 ///
-/// let alice_friends = friends.get(&"alice".into())
-///     .map(|(s, _)| s.value());
+/// let alice_friends = friends.get(&"alice".into()).val
+///     .map(|set| set.value().val);
 /// assert_eq!(alice_friends, Some(vec!["clyde".into()]));
 /// ```
 #[serde(bound(deserialize = ""))]
@@ -106,8 +106,8 @@ pub enum Op<K: Key, V: Val<A>, A: Actor> {
     Nop,
     /// Remove a key from the map
     Rm {
-        /// The entry's clock at the time of the remove
-        ctx: VClock<A>,
+        /// The clock under which we will perform this remove
+        clock: VClock<A>,
         /// Key to remove
         key: K
     },
@@ -163,8 +163,8 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     fn apply(&mut self, op: &Self::Op) {
         match op.clone() {
             Op::Nop => {/* do nothing */},
-            Op::Rm { ctx, key } => {
-                self.apply_rm(key, &ctx);
+            Op::Rm { clock, key } => {
+                self.apply_rm(key, &clock);
             },
             Op::Up { dot: Dot { actor, counter }, key, op } => {
                 if self.clock.get(&actor) >= counter {
@@ -275,41 +275,47 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
          }
     }
 
-    /// Returns the next dot for the given actor
-    pub fn dot(&self, actor: impl Into<A>) -> Dot<A> {
-        let actor = actor.into();
-        let counter = self.clock.get(&actor) + 1;
-        Dot { actor, counter }
-    }
-
     /// Returns the number of entries in the Map
-    pub fn len(&self) -> usize {
-        self.entries.len()
+    pub fn len(&self) -> ReadCtx<usize, A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: self.entries.len()
+        }
     }
 
-    /// Get a reference to a value stored under a key
-    pub fn get(&self, key: &K) -> Option<(&V, VClock<A>)> {
-        self.entries.get(&key)
-            .map(|map_entry| (&map_entry.val, map_entry.clock.clone()))
+    /// Retrieve value stored under a key
+    pub fn get(&self, key: &K) -> ReadCtx<Option<V>, A> {
+        let add_clock = self.clock.clone();
+        let entry_opt = self.entries.get(&key);
+        ReadCtx {
+            add_clock: add_clock,
+            rm_clock: entry_opt
+                .map(|map_entry| map_entry.clock.clone())
+                .unwrap_or_else(|| VClock::new()),
+            val: entry_opt
+                .map(|map_entry| map_entry.val.clone())
+        }
     }
 
     /// Update a value under some key, if the key is not present in the map,
     /// the updater will be given the result of V::default().
-    pub fn update<U>(&self, key: impl Into<K>, dot: Dot<A>, updater: U) -> Op<K, V, A>
-        where U: FnOnce(&V, &Dot<A>) -> V::Op
+    pub fn update<F, I>(&self, key: I, ctx: AddCtx<A>, f: F) -> Op<K, V, A>
+        where F: FnOnce(&V, AddCtx<A>) -> V::Op,
+              I: Into<K>
     {
         let key = key.into();
         let op = if let Some(entry) = self.entries.get(&key) {
-            updater(&entry.val, &dot)
+            f(&entry.val, ctx.clone())
         } else {
-            updater(&V::default(), &dot)
+            f(&V::default(), ctx.clone())
         };
-        Op::Up { dot, key, op }
+        Op::Up { dot: ctx.dot, key, op }
     }
 
     /// Remove an entry from the Map
-    pub fn rm(&self, key: impl Into<K>, ctx: VClock<A>) -> Op<K, V, A> {
-        Op::Rm { ctx, key: key.into() }
+    pub fn rm(&self, key: impl Into<K>, ctx: RmCtx<A>) -> Op<K, V, A> {
+        Op::Rm { clock: ctx.clock, key: key.into() }
     }
 
     /// apply the pending deferred removes 
@@ -323,19 +329,19 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         }
     }
 
-    /// Apply a key removal given a context.
-    fn apply_rm(&mut self, key: K, context: &VClock<A>) {
-        if !context.dominating_vclock(&self.clock).is_empty() {
-            let deferred_set = self.deferred.entry(context.clone())
+    /// Apply a key removal given a clock.
+    fn apply_rm(&mut self, key: K, clock: &VClock<A>) {
+        if !clock.dominating_vclock(&self.clock).is_empty() {
+            let deferred_set = self.deferred.entry(clock.clone())
                 .or_insert_with(|| BTreeSet::new());
             deferred_set.insert(key.clone());
         }
 
         if let Some(mut existing_entry) = self.entries.remove(&key) {
-            let dom_clock = existing_entry.clock.dominating_vclock(&context);
+            let dom_clock = existing_entry.clock.dominating_vclock(&clock);
             if !dom_clock.is_empty() {
                 existing_entry.clock = dom_clock;
-                existing_entry.val.truncate(&context);
+                existing_entry.val.truncate(&clock);
                 self.entries.insert(key.clone(), existing_entry);
             }
         }
@@ -378,11 +384,11 @@ mod tests {
 
             match self.clone() {
                 Op::Nop => {/* shrink to nothing */},
-                Op::Rm { ctx, key } => {
+                Op::Rm { clock, key } => {
                     shrunk.extend(
-                        ctx.shrink()
+                        clock.shrink()
                             .map(|c| Op::Rm {
-                                ctx: c,
+                                clock: c,
                                 key: key.clone()
                             })
                             .collect::<Vec<Self>>()
@@ -391,7 +397,7 @@ mod tests {
                     shrunk.extend(
                         key.shrink()
                             .map(|k| Op::Rm {
-                                ctx: ctx.clone(),
+                                clock: clock.clone(),
                                 key: k.clone()
                             }).collect::<Vec<Self>>()
                     );
@@ -432,11 +438,14 @@ mod tests {
                 let key: u8 = g.gen();
                 let actor = g.gen_range(0, 10);
                 let coin_toss = g.gen();
+                let ctx = map.get(&key);
+                let reg_val: u8 = g.gen();
                 let op = match coin_toss {
                     true =>
-                        map.update(key, map.dot(actor), |r, dot| r.set(g.gen::<u8>(), dot)),
+                        map.update(key, ctx.derive_add_ctx(actor), |r, ctx| r.set(reg_val, ctx)
+                        ),
                     false =>
-                        map.rm(key, VClock::arbitrary(g))
+                        map.rm(key, ctx.derive_rm_ctx())
                 };
                 map.apply(&op);
             }
@@ -484,11 +493,11 @@ mod tests {
             for i in 0..num_ops {
                 let die_roll: u8 = g.gen();
                 let die_roll_inner: u8 = g.gen();
-                let ctx: VClock<_> = Dot { actor, counter: i as u64 }.into();
+                let clock: VClock<_> = Dot { actor, counter: i as u64 }.into();
 
                 let op = match die_roll % 3 {
                     0 => {
-                        let dot = Dot { actor, counter: ctx.get(&actor) };
+                        let dot = Dot { actor, counter: clock.get(&actor) };
                         Op::Up {
                             dot: dot.clone(),
                             key: g.gen(),
@@ -497,19 +506,19 @@ mod tests {
                                     dot: dot.clone(),
                                     key: g.gen(),
                                     op: mvreg::Op::Put {
-                                        ctx,
+                                        clock,
                                         val: g.gen()
                                     }
                                 },
                                 1 => Op::Rm {
-                                    ctx,
+                                    clock: clock,
                                     key: g.gen()
                                 },
                                 _ => Op::Nop
                             }
                         }
                     },
-                    1 => Op::Rm { ctx, key: g.gen() },
+                    1 => Op::Rm { clock, key: g.gen() },
                     _ => Op::Nop
                 };
                 ops.push(op);
@@ -524,43 +533,44 @@ mod tests {
                 vec.remove(i);
                 shrunk.push(OpVec(self.0.clone(), vec))
             }
-
+            
             Box::new(shrunk.into_iter())
         }
     }
-
+    
     #[test]
     fn test_new() {
         let m: TestMap = Map::new();
-        assert_eq!(m.len(), 0);
+        assert_eq!(m.len().val, 0);
     }
-
+    
     #[test]
     fn test_get() {
         let mut m: TestMap = Map::new();
-
-        assert_eq!(m.get(&0), None);
-
+        
+        assert_eq!(m.get(&0).val, None);
+        
         let op_1 = m.clock.inc(1);
         m.clock.apply(&op_1);
-
+        
         m.entries.insert(0, Entry {
             clock: m.clock.clone(),
             val: Map::default()
         });
 
-        assert_eq!(m.get(&0), Some((&Map::new(), m.clock.clone())));
+        assert_eq!(m.get(&0).val, Some(Map::new()));
     }
-
+    
     #[test]
     fn test_update() {
         let mut m: TestMap = Map::new();
-
+        
         // constructs a default value if does not exist
-        let op = m.update(101, m.dot(1), |map, dot| {
-            map.update(110, dot.clone(), |reg, dot| reg.set(2, dot))
+        let ctx = m.get(&101).derive_add_ctx(1);
+        let op = m.update(101, ctx, |map, ctx| {
+            map.update(110, ctx, |reg, ctx| reg.set(2, ctx))
         });
-
+        
         assert_eq!(
             op,
             Op::Up {
@@ -570,107 +580,108 @@ mod tests {
                     dot: Dot { actor: 1, counter: 1 },
                     key: 110,
                     op: mvreg::Op::Put {
-                        ctx: Dot { actor: 1, counter: 1 }.into(),
+                        clock: Dot { actor: 1, counter: 1 }.into(),
                         val: 2
                     }
                 }
             }
         );
-
+        
         assert_eq!(m, Map::new());
-
+        
         m.apply(&op);
-
+        
         assert_eq!(
-            m.get(&101)
-                .and_then(|(m2, _)| m2.get(&110))
-                .map(|(r, _)| r.get().0),
-            Some(vec![&2])
+            m.get(&101).val
+                .and_then(|m2| m2.get(&110).val)
+                .map(|r| r.read().val),
+            Some(vec![2])
         );
-
+        
         // the map should give the latest val to the closure
-        let op2 = m.update(101, m.dot(1), |map, dot| {
-            map.update(110, dot.clone(), |reg, dot| {
-                assert_eq!(reg.get().0, vec![&2]);
-                reg.set(6, dot)
+        let op2 = m.update(101, m.get(&101).derive_add_ctx(1), |map, ctx| {
+            map.update(110, ctx, |reg, ctx| {
+                assert_eq!(reg.read().val, vec![2]);
+                reg.set(6, ctx)
             })
         });
         m.apply(&op2);
-
+        
         assert_eq!(
-            m.get(&101)
-                .and_then(|(m2, _)| m2.get(&110))
-                .map(|(r, _)| r.get().0),
-            Some(vec![&6])
+            m.get(&101).val
+                .and_then(|m2| m2.get(&110).val)
+                .map(|r| r.read().val),
+            Some(vec![6])
         );
     }
-
+    
     #[test]
     fn test_remove() {
         let mut m: TestMap = Map::new();
-
+        let add_ctx = m.get(&101).derive_add_ctx(1);
         let op = m.update(
             101,
-            m.dot(1),
-            |m, dot| m.update(110, dot.clone(), |r, dot| r.set(0, dot))
+            add_ctx.clone(),
+            |m, ctx| m.update(110, ctx, |r, ctx| r.set(0, ctx))
         );
         let mut inner_map: Map<TestKey, TestVal, TestActor> = Map::new();
-        let inner_op = inner_map.update(110, m.dot(1), |r, dot| r.set(0, dot));
+        let inner_op = inner_map.update(110, add_ctx, |r, ctx| r.set(0, ctx));
         inner_map.apply(&inner_op);
-
+        
         m.apply(&op);
-
+        
         let rm_op = {
-            let (val, ctx) = m.get(&101).unwrap();
-            assert_eq!(val, &inner_map);
-            assert_eq!(m.len(), 1);
-            m.rm(101, ctx)
+            let read_ctx = m.get(&101);
+            assert_eq!(read_ctx.val, Some(inner_map));
+            assert_eq!(m.len().val, 1);
+            let rm_ctx = read_ctx.derive_rm_ctx();
+            m.rm(101, rm_ctx)
         };
         m.apply(&rm_op);
-        assert_eq!(m.get(&101), None);
-        assert_eq!(m.len(), 0);
+        assert_eq!(m.get(&101).val, None);
+        assert_eq!(m.len().val, 0);
     }
-
+    
     #[test]
     fn test_reset_remove_semantics() {
         let mut m1 = TestMap::new();
-        let op1 = m1.update(101, m1.dot(74), |map, dot| {
-            map.update(110, dot.clone(), |reg, dot| {
-                reg.set(32, dot)
+        let op1 = m1.update(101, m1.get(&101).derive_add_ctx(74), |map, ctx| {
+            map.update(110, ctx, |reg, ctx| {
+                reg.set(32, ctx)
             })
         });
         m1.apply(&op1);
-
+        
         let mut m2 = m1.clone();
-
-        let (_, ctx) = m1.get(&101).unwrap();
-
-        let op2 = m1.rm(101, ctx);
+        
+        let read_ctx = m1.get(&101);
+        
+        let op2 = m1.rm(101, read_ctx.derive_rm_ctx());
         m1.apply(&op2);
-
-        let op3 = m2.update(101, m2.dot(37), |map, dot| {
-            map.update(220, dot.clone(), |reg, dot| {
-                reg.set(5, dot)
+        
+        let op3 = m2.update(101, m2.get(&101).derive_add_ctx(37), |map, ctx| {
+            map.update(220, ctx, |reg, ctx| {
+                reg.set(5, ctx)
             })
         });
         m2.apply(&op3);
-
+        
         let m1_snapshot = m1.clone();
         
         m1.merge(&m2);
         m2.merge(&m1_snapshot);
         assert_eq!(m1, m2);
-
-        let (inner_map, _) = m1.get(&101).unwrap();
-        assert_eq!(inner_map.get(&220).unwrap().0.get().0, vec![&5]);
-        assert_eq!(inner_map.get(&110), None);
-        assert_eq!(inner_map.len(), 1);
+        
+        let inner_map = m1.get(&101).val.unwrap();
+        assert_eq!(inner_map.get(&220).val.map(|r| r.read().val), Some(vec![5]));
+        assert_eq!(inner_map.get(&110).val, None);
+        assert_eq!(inner_map.len().val, 1);
     }
     
     #[test]
     fn test_updating_with_current_clock_should_be_a_nop() {
         let mut m1: TestMap = Map::new();
-
+        
         m1.apply(&Op::Up {
             dot: Dot { actor: 1, counter: 0 },
             key: 0,
@@ -678,181 +689,179 @@ mod tests {
                 dot: Dot { actor: 1, counter: 0 },
                 key: 1,
                 op: mvreg::Op::Put {
-                    ctx: VClock::new(),
+                    clock: VClock::new(),
                     val: 235
                 }
             }
         });
-
+        
         // the update should have been ignored
         assert_eq!(m1, Map::new());
     }
-
+    
     #[test]
     fn test_concurrent_update_and_remove_add_bias() {
         let mut m1 = TestMap::new();
         let mut m2 = TestMap::new();
-
+        
         let op1 = Op::Rm {
-            ctx: Dot { actor: 1, counter: 1 }.into(),
+            clock: Dot { actor: 1, counter: 1 }.into(),
             key: 102
         };
-        let op2 = m2.update(102, m2.dot(2), |_, _| Op::Nop);
-
+        let op2 = m2.update(102, m2.get(&102).derive_add_ctx(2), |_, _| Op::Nop);
+        
         m1.apply(&op1);
         m2.apply(&op2);
-
+        
         let mut m1_clone = m1.clone();
         let mut m2_clone = m2.clone();
-
+        
         m1_clone.merge(&m2);
         m2_clone.merge(&m1);
-
+        
         assert_eq!(m1_clone, m2_clone);
-
+        
         m1.apply(&op2);
         m2.apply(&op1);
-
+        
         assert_eq!(m1, m2);
-
+        
         assert_eq!(m1, m1_clone);
-
+        
         // we bias towards adds
-        assert!(m1.get(&102).is_some());
+        assert!(m1.get(&102).val.is_some());
     }
-
+    
     #[test]
     fn test_op_exchange_commutes_quickcheck1() {
         // THIS WILL NOT PASS IF WE SWAP OUT THE MVREG WITH AN LWWREG
         // we need a true causal register
         let mut m1: Map<u8, MVReg<u8, u8>, u8> = Map::new();
         let mut m2: Map<u8, MVReg<u8, u8>, u8> = Map::new();
-
-        let m1_op1 = m1.update(0, m1.dot(1), |reg, dot| reg.set(0, dot));
+        
+        let m1_op1 = m1.update(0, m1.get(&0).derive_add_ctx(1), |reg, ctx| reg.set(0, ctx));
         m1.apply(&m1_op1);
-
-        let m1_op2 = m1.rm(0, m1.get(&0).unwrap().1);
+        
+        let m1_op2 = m1.rm(0, m1.get(&0).derive_rm_ctx());
         m1.apply(&m1_op2);
-
-        let m2_op1 = m2.update(0, m2.dot(2), |reg, dot| reg.set(0, dot));
+        
+        let m2_op1 = m2.update(0, m2.get(&0).derive_add_ctx(2), |reg, ctx| reg.set(0, ctx));
         m2.apply(&m2_op1);
-
+        
         // m1 <- m2
         m1.apply(&m2_op1);
-
+        
         // m2 <- m1
         m2.apply(&m1_op1);
         m2.apply(&m1_op2);
-
+        
         assert_eq!(m1, m2);
     }
-
+    
     #[test]
     fn test_op_deferred_remove() {
-        let mut m1 = TestMap::new();
-        let mut m2 = TestMap::new();
-        let mut m3 = TestMap::new();
-
+        let mut m1: Map<u8, MVReg<u8, u8>, u8> = Map::new();
+        let mut m2 = m1.clone();
+        let mut m3 = m1.clone();
+        
         let m1_up1 = m1.update(
             0,
-            m1.dot(1),
-            |map, dot| map.update(0, dot.clone(), |reg, dot| {
-                reg.set(0, dot)
-            })
+            m1.get(&0).derive_add_ctx(1),
+            |reg, ctx| reg.set(0, ctx)
         );
         m1.apply(&m1_up1);
-
+        
         let m1_up2 = m1.update(
             1,
-            m1.dot(1),
-            |map, dot| map.update(1, dot.clone(), |reg, dot| {
-                reg.set(1, dot)
-            })
+            m1.get(&1).derive_add_ctx(1),
+            |reg, ctx| reg.set(1, ctx)
         );
         m1.apply(&m1_up2);
-
+        
         m2.apply(&m1_up1);
         m2.apply(&m1_up2);
-
-        let (_, ctx) = m2.get(&0).unwrap();
-        let m2_rm = m2.rm(0, ctx);
+        
+        let read_ctx = m2.get(&0);
+        let m2_rm = m2.rm(0, read_ctx.derive_rm_ctx());
         m2.apply(&m2_rm);
         
-        assert_eq!(m2.get(&0), None);
+        println!("{:#?}", m3);
+        assert_eq!(m2.get(&0).val, None);
         m3.apply(&m2_rm);
+        println!("{:#?}", m3);
         assert_eq!(m3.deferred.len(), 1);
         m3.apply(&m1_up1);
+        println!("{:#?}", m3);
         assert_eq!(m3.deferred.len(), 0);
         m3.apply(&m1_up2);
-
+        println!("{:#?}", m3);
+        
         m1.apply(&m2_rm);
-
-        assert_eq!(m2.get(&0), None);
+        
+        assert_eq!(m2.get(&0).val, None);
         assert_eq!(
-            m3.get(&1)
-                .and_then(|(inner, _)| inner.get(&1))
-                .map(|(r, _)| r.get().0),
-            Some(vec![&1])
+            m3.get(&1).val
+                .map(|r| r.read().val),
+            Some(vec![1])
         );
         
         assert_eq!(m2, m3);
         assert_eq!(m1, m2);
         assert_eq!(m1, m3);
     }
-
+    
     #[test]
     fn test_merge_deferred_remove() {
         let mut m1 = TestMap::new();
         let mut m2 = TestMap::new();
         let mut m3 = TestMap::new();
-
+        
         let m1_up1 = m1.update(
             0,
-            m1.dot(1),
-            |map, dot| map.update(0, dot.clone(), |reg, dot| {
-                reg.set(0, dot)
+            m1.get(&0).derive_add_ctx(1),
+            |map, ctx| map.update(0, ctx, |reg, ctx| {
+                reg.set(0, ctx)
             })
         );
         m1.apply(&m1_up1);
-
+        
         let m1_up2 = m1.update(
             1,
-            m1.dot(1),
-            |map, dot| map.update(1, dot.clone(), |reg, dot| {
-                reg.set(1, dot)
+            m1.get(&1).derive_add_ctx(1),
+            |map, ctx| map.update(1, ctx, |reg, ctx| {
+                reg.set(1, ctx)
             })
         );
         m1.apply(&m1_up2);
 
         m2.apply(&m1_up1);
         m2.apply(&m1_up2);
-
-        let (_, ctx) = m2.get(&0).unwrap();
-        let m2_rm = m2.rm(0, ctx);
+        
+        let m2_rm = m2.rm(0, m2.get(&0).derive_rm_ctx());
         m2.apply(&m2_rm);
-
+        
         m3.merge(&m2);
         m3.merge(&m1);
         m1.merge(&m2);
-
-        assert_eq!(m2.get(&0), None);
+        
+        assert_eq!(m2.get(&0).val, None);
         assert_eq!(
-            m3.get(&1)
-                .and_then(|(inner, _)| inner.get(&1))
-                .map(|(r, _)| r.get().0),
-            Some(vec![&1])
+            m3.get(&1).val
+                .and_then(|inner| inner.get(&1).val)
+                .map(|r| r.read().val),
+            Some(vec![1])
         );
         
         assert_eq!(m2, m3);
         assert_eq!(m1, m2);
         assert_eq!(m1, m3);
     }
-
+    
     #[test]
     fn test_commute_quickcheck_bug() {
         let ops = vec![
             Op::Rm {
-                ctx: Dot { actor: 45, counter: 1 }.into(),
+                clock: Dot { actor: 45, counter: 1 }.into(),
                 key: 0
             },
             Op::Up {
@@ -861,23 +870,23 @@ mod tests {
                 op: Op::Up {
                     dot: Dot { actor: 45, counter: 1 },
                     key: 0,
-                    op: mvreg::Op::Put { ctx: VClock::new(), val: 0 }
+                    op: mvreg::Op::Put { clock: VClock::new(), val: 0 }
                 }
             }
         ];
-
+        
         let mut m = Map::new();
         apply_ops(&mut m, &ops);
-
+        
         let m_snapshot = m.clone();
-
+        
         let mut empty_m = Map::new();
         m.merge(&empty_m);
         empty_m.merge(&m_snapshot);
-
+        
         assert_eq!(m, empty_m);
     }
-
+    
     #[test]
     fn test_idempotent_quickcheck_bug1() {
         let ops = vec![
@@ -892,20 +901,20 @@ mod tests {
                 op: Op::Up {
                     dot: Dot { actor: 21, counter: 1 },
                     key: 0,
-                    op: mvreg::Op::Put { ctx: VClock::new(), val: 0 }
+                    op: mvreg::Op::Put { clock: VClock::new(), val: 0 }
                 }
             }
         ];
-
+        
         let mut m = Map::new();
         apply_ops(&mut m, &ops);
-
+        
         let m_snapshot = m.clone();
         m.merge(&m_snapshot);
-
+        
         assert_eq!(m, m_snapshot);
     }
-
+    
     #[test]
     fn test_idempotent_quickcheck_bug2() {
         let mut m: TestMap = Map::new();
@@ -915,26 +924,26 @@ mod tests {
             op: Op::Up {
                 dot: Dot { actor: 32, counter: 5 },
                 key: 0,
-                op: mvreg::Op::Put { ctx: VClock::new(), val: 0 }
+                op: mvreg::Op::Put { clock: VClock::new(), val: 0 }
             }
         });
-
+        
         let m_snapshot = m.clone();
-
+        
         // m ^ m
         m.merge(&m_snapshot);
-
+        
         // m ^ m = m
         assert_eq!(m, m_snapshot);
     }
-
+    
     #[test]
     fn test_nop_on_new_map_should_remain_a_new_map() {
         let mut map = TestMap::new();
         map.apply(&Op::Nop);
         assert_eq!(map, TestMap::new());
     }
-
+    
     #[test]
     fn test_op_exchange_same_as_merge_quickcheck1() {
         let op1 = Op::Up {
@@ -949,7 +958,7 @@ mod tests {
                 dot: Dot { actor: 91, counter: 1 },
                 key: 37,
                 op: mvreg::Op::Put {
-                    ctx: Dot { actor: 91, counter: 1 }.into(),
+                    clock: Dot { actor: 91, counter: 1 }.into(),
                     val: 94
                 }
             }
@@ -958,17 +967,17 @@ mod tests {
         let mut m2: TestMap = Map::new();
         m1.apply(&op1);
         m2.apply(&op2);
-
+        
         let mut m1_merge = m1.clone();
         m1_merge.merge(&m2);
         
         let mut m2_merge = m2.clone();
         m2_merge.merge(&m1);
-
+        
         m1.apply(&op2);
         m2.apply(&op1);
-
-
+        
+        
         assert_eq!(m1, m2);
         assert_eq!(m1_merge, m2_merge);
         assert_eq!(m1, m1_merge);
@@ -976,7 +985,7 @@ mod tests {
         assert_eq!(m1, m2_merge);
         assert_eq!(m2, m1_merge);
     }
-
+    
     #[test]
     fn test_idempotent_quickcheck1() {
         let ops = vec![
@@ -987,7 +996,7 @@ mod tests {
                     dot: Dot { actor: 62, counter: 1 },
                     key: 65,
                     op: mvreg::Op::Put {
-                        ctx: Dot { actor: 62, counter: 1 }.into(),
+                        clock: Dot { actor: 62, counter: 1 }.into(),
                         val: 240
                     }
                 }
@@ -999,7 +1008,7 @@ mod tests {
                     dot: Dot { actor: 62, counter: 1 },
                     key: 193,
                     op: mvreg::Op::Put {
-                        ctx: Dot { actor: 62, counter: 1 }.into(),
+                        clock: Dot { actor: 62, counter: 1 }.into(),
                         val: 28
                     }
                 }
@@ -1008,14 +1017,14 @@ mod tests {
         let mut m: TestMap = Map::new();
         apply_ops(&mut m, &ops);
         let m_snapshot = m.clone();
-
+        
         // m ^ m
         m.merge(&m_snapshot);
-
+        
         // m ^ m = m
         assert_eq!(m, m_snapshot);
     }
-
+    
     #[test]
     fn test_op_exchange_converges_quickcheck1() {
         let ops1 = vec![
@@ -1026,7 +1035,7 @@ mod tests {
                     dot: Dot { actor: 0, counter: 3 },
                     key: 0,
                     op: mvreg::Op::Put {
-                        ctx: Dot { actor: 0, counter: 3 }.into(),
+                        clock: Dot { actor: 0, counter: 3 }.into(),
                         val: 0
                     }
                 }
@@ -1037,19 +1046,19 @@ mod tests {
                 dot: Dot { actor: 1, counter: 1 },
                 key: 9,
                 op: Op::Rm {
-                    ctx: Dot { actor: 1, counter: 1 }.into(),
+                    clock: Dot { actor: 1, counter: 1 }.into(),
                     key: 0
                 }
             },
             Op::Rm {
-                ctx: Dot { actor: 1, counter: 2 }.into(),
+                clock: Dot { actor: 1, counter: 2 }.into(),
                 key: 9
             }
         ];
-
+        
         let mut m1: TestMap = Map::new();
         let mut m2: TestMap = Map::new();
-
+        
         apply_ops(&mut m1, &ops1);
         assert_eq!(m1.clock, Dot { actor: 0, counter: 3 }.into());
         assert_eq!(m1.entries.get(&9).unwrap().clock, Dot { actor: 0, counter: 3 }.into());
@@ -1059,24 +1068,24 @@ mod tests {
         assert_eq!(m2.clock, Dot { actor: 1, counter: 1 }.into());
         assert_eq!(m2.entries.get(&9), None);
         assert_eq!(m2.deferred.get(&Dot { actor: 1, counter: 2 }.into()), Some(&vec![9].into_iter().collect()));
-
+        
         // m1 <- m2
         apply_ops(&mut m1, &ops2);
-
+        
         // m2 <- m1
         apply_ops(&mut m2, &ops1);
         
         // m1 <- m2 == m2 <- m1
         assert_eq!(m1, m2);
-            
+        
     }
-
+    
     fn apply_ops(map: &mut TestMap, ops: &[TestOp]) {
         for op in ops.iter().cloned() {
             map.apply(&op);
         }
     }
-
+    
     quickcheck! {
         // TODO: add test to show equivalence of merge and Op exchange
         fn prop_op_exchange_same_as_merge(
@@ -1086,79 +1095,79 @@ mod tests {
             if ops1.0 == ops2.0 {
                 return TestResult::discard();
             }
-
+            
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
-
+            
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
-
+            
             let mut m_merged = m1.clone();
             m_merged.merge(&m2);
-
+            
             apply_ops(&mut m1, &ops2.1);
             apply_ops(&mut m2, &ops1.1);
-
+            
             TestResult::from_bool(m1 == m_merged && m2 == m_merged)
         }
-
+        
         fn prop_op_exchange_converges(ops1: OpVec, ops2: OpVec) -> TestResult {
             if ops1.0 == ops2.0 {
                 return TestResult::discard();
             }
-
+            
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
-
+            
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
-
+            
             // m1 <- m2
             apply_ops(&mut m1, &ops2.1);
-
+            
             // m2 <- m1
             apply_ops(&mut m2, &ops1.1);
-
+            
             // m1 <- m2 == m2 <- m1
             assert_eq!(m1, m2);
             TestResult::from_bool(true)
         }
-
+        
         fn prop_op_exchange_associative(ops1: OpVec, ops2: OpVec, ops3: OpVec) -> TestResult {
             if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
                 return TestResult::discard();
             }
-
+            
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
             let mut m3: TestMap = Map::new();
-
+            
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
             apply_ops(&mut m3, &ops3.1);
-
+            
             // (m1 <- m2) <- m3
             apply_ops(&mut m1, &ops2.1);
             apply_ops(&mut m1, &ops3.1);
-
+            
             // (m2 <- m3) <- m1
             apply_ops(&mut m2, &ops3.1);
             apply_ops(&mut m2, &ops1.1);
-
+            
             // (m1 <- m2) <- m3 = (m2 <- m3) <- m1
             TestResult::from_bool(m1 == m2)
         }
-
+        
         fn prop_op_idempotent(ops: OpVec) -> bool {
             let mut m = TestMap::new();
-
+            
             apply_ops(&mut m, &ops.1);
             let m_snapshot = m.clone();
             apply_ops(&mut m, &ops.1);
-
+            
             m == m_snapshot
         }
-
+        
         fn prop_op_associative(
             ops1: OpVec,
             ops2: OpVec,
@@ -1167,28 +1176,28 @@ mod tests {
             if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
                 return TestResult::discard();
             }
-
+            
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
             let mut m3: TestMap = Map::new();
-
+            
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
             apply_ops(&mut m3, &ops3.1);
-
+            
             // (m1 <- m2) <- m3
             apply_ops(&mut m1, &ops2.1);
             apply_ops(&mut m1, &ops3.1);
-
+            
             // (m2 <- m3) <- m1
             apply_ops(&mut m2, &ops3.1);
             apply_ops(&mut m2, &ops1.1);
-
+            
             // (m1 ^ m2) ^ m3 = m1 ^ (m2 ^ m3)
             TestResult::from_bool(m1 == m2)
         }
-
-
+        
+        
         fn prop_merge_associative(
             ops1: OpVec,
             ops2: OpVec,
@@ -1197,69 +1206,69 @@ mod tests {
             if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
                 return TestResult::discard();
             }
-
+            
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
             let mut m3: TestMap = Map::new();
-
+            
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
             apply_ops(&mut m3, &ops3.1);
-
+            
             let mut m1_snapshot = m1.clone();
-
+            
             // (m1 ^ m2) ^ m3
             m1.merge(&m2);
             m1.merge(&m3);
-
+            
             // m1 ^ (m2 ^ m3)
             m2.merge(&m3);
             m1_snapshot.merge(&m2);
-
+            
             // (m1 ^ m2) ^ m3 = m1 ^ (m2 ^ m3)
             TestResult::from_bool(m1 == m1_snapshot)
         }
-
+        
         fn prop_merge_commutative(ops1: OpVec, ops2: OpVec) -> TestResult {
             if ops1.0 == ops2.0 {
                 return TestResult::discard();
             }
             let mut m1: TestMap = Map::new();
             let mut m2: TestMap = Map::new();
-
+            
             apply_ops(&mut m1, &ops1.1);
             apply_ops(&mut m2, &ops2.1);
-
+            
             let m1_snapshot = m1.clone();
             // m1 ^ m2
             m1.merge(&m2);
-
+            
             // m2 ^ m1
             m2.merge(&m1_snapshot);
-
+            
             // m1 ^ m2 = m2 ^ m1
             TestResult::from_bool(m1 == m2)
         }
-
+        
         fn prop_merge_idempotent(ops: OpVec) -> bool {
             let mut m: TestMap = Map::new();
             apply_ops(&mut m, &ops.1);
             let m_snapshot = m.clone();
-
+            
             // m ^ m
             m.merge(&m_snapshot);
-
+            
             // m ^ m = m
             m == m_snapshot
         }
-
+        
         fn prop_truncate_with_empty_vclock_is_nop(ops: OpVec) -> bool {
             let mut m: TestMap = Map::new();
             apply_ops(&mut m, &ops.1);
-
+            
             let m_snapshot = m.clone();
             m.truncate(&VClock::new());
-
+            
             m == m_snapshot
         }
     }

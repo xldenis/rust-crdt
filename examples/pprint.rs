@@ -11,12 +11,8 @@ fn main() {
 
     let mut reg = crdts::MVReg::<String, u128>::new();
 
-    let ctx = reg.context();
-    let dot_9742820 = ctx.inc(9742820);
-    let dot_648572 = ctx.inc(648572);
-
-    let op1 = reg.set("some val", &dot_9742820);
-    let op2 = reg.set("some other val", &dot_648572);
+    let op1 = reg.set("some val", reg.read().derive_add_ctx(9742820));
+    let op2 = reg.set("some other val", reg.read().derive_add_ctx(648572));
     reg.apply(&op1);
     reg.apply(&op2);
 
