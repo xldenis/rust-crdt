@@ -95,40 +95,7 @@ impl<A: Actor> VClock<A> {
         VClock { dots: BTreeMap::new() }
     }
 
-    /// Returns the greatest lower bound of given clocks
-    ///
-    /// # Examples
-    ///
-    /// ``` rust
-    /// use crdts::VClock;
-    /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A".to_string(), 3);
-    /// a.witness("B".to_string(), 6);
-    /// b.witness("A".to_string(), 2);
-    ///
-    /// let glb = VClock::glb(&a, &b);
-    ///
-    /// assert_eq!(glb.get(&"A".to_string()), 2);
-    /// assert_eq!(glb.get(&"B".to_string()), 0);
-    /// assert!(a >= glb);
-    /// assert!(b >= glb);
-    /// ```
-    pub fn glb(a: &VClock<A>, b: &VClock<A>) -> VClock<A> {
-        let mut glb_vclock = VClock::new();
-        for (actor, a_cntr) in a.dots.iter() {
-            let min_cntr = cmp::min(b.get(actor), *a_cntr);
-            if min_cntr > 0 {
-                // 0 is the implied counter if an actor is not in dots, so we don't
-                // need to waste memory by storing it
-                glb_vclock.dots.insert(actor.clone(), min_cntr);
-            }
-        }
-        glb_vclock
-    }
-
-    /// Truncates the VClock to the greatest-lower-bound of the passed
-    /// in VClock and it's self
-    /// (essentially a mutable version of VClock::glb)
+    /// Truncates to the greatest-lower-bound between the given VClock and self
     /// ``` rust
     /// use crdts::VClock;
     /// let mut c = VClock::new();
