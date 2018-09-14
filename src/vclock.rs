@@ -95,7 +95,7 @@ impl<A: Actor> VClock<A> {
         VClock { dots: BTreeMap::new() }
     }
 
-    /// Truncates to the greatest-lower-bound between the given VClock and self
+    /// Truncates to the greatest-lower-bound of the given VClock and self
     /// ``` rust
     /// use crdts::VClock;
     /// let mut c = VClock::new();

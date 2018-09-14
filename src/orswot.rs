@@ -191,8 +191,9 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     fn apply_remove(&mut self, member: impl Into<M>, clock: &VClock<A>) {
         let member: M = member.into();
         if !clock.dominating_vclock(&self.clock).is_empty() {
-            let mut deferred_drops =
-                self.deferred.remove(&clock).unwrap_or_else(|| HashSet::new());
+            let mut deferred_drops = self.deferred
+                .remove(&clock)
+                .unwrap_or_else(|| HashSet::new());
             deferred_drops.insert(member.clone());
             self.deferred.insert(clock.clone(), deferred_drops);
         }
@@ -452,7 +453,10 @@ mod tests {
         a.apply(&a_op2);
 
         a.merge(&b);
-        assert_eq!(a.value().val, vec!["element".to_string()].into_iter().collect());
+        assert_eq!(
+            a.value().val,
+            vec!["element".to_string()].into_iter().collect()
+        );
     }
 
     #[test]
@@ -528,7 +532,10 @@ mod tests {
         let b_op = a.add(1, b.value().derive_add_ctx(7));
         b.apply(&b_op);
         a.merge(&b);
-        assert_eq!(a.value().val, vec![1].into_iter().collect());
+        assert_eq!(
+            a.value().val,
+            vec![1].into_iter().collect()
+        );
         let mut expected_clock = VClock::new();
         let op_3 = expected_clock.inc(3);
         let op_7 = expected_clock.inc(7);
@@ -649,9 +656,15 @@ mod tests {
     fn test_dead_node_update() {
         let mut a = Orswot::<u8, u8>::new();
         let a_op = a.add(0, a.value().derive_add_ctx(1));
-        assert_eq!(a_op, super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: 0 });
+        assert_eq!(
+            a_op,
+            super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: 0 }
+        );
         a.apply(&a_op);
-        assert_eq!(a.entries.get(&0).unwrap(), &VClock::from(Dot { actor: 1u8, counter: 1 }));
+        assert_eq!(
+            a.entries.get(&0).unwrap(),
+            &VClock::from(Dot { actor: 1u8, counter: 1 })
+        );
 
         let mut b = a.clone();
         let b_op = b.add(1, b.value().derive_add_ctx(2));
@@ -697,6 +710,9 @@ mod tests {
         m2.merge(&snapshot);
 
         assert_eq!(m1, m2);
-        assert_eq!(m1.get(&101).val.unwrap().value().val, vec![2].into_iter().collect());
+        assert_eq!(
+            m1.get(&101).val.unwrap().value().val,
+            vec![2].into_iter().collect()
+        );
     }
 }
