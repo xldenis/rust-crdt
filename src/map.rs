@@ -67,7 +67,7 @@ impl<A, T> Val<A> for T where
 /// assert_eq!(friends.get(&"alice".into()).val, None);
 /// assert_eq!(
 ///     friends_replica.get(&"alice".into()).val.map(|set| set.value().val),
-///     Some(vec!["bob".to_string(), "clyde".to_string()])
+///     Some(vec!["bob".to_string(), "clyde".to_string()].into_iter().collect())
 /// );
 ///
 /// // On merge, we should see "alice" in the map but her friend set should only have "clyde".
@@ -76,7 +76,7 @@ impl<A, T> Val<A> for T where
 ///
 /// let alice_friends = friends.get(&"alice".into()).val
 ///     .map(|set| set.value().val);
-/// assert_eq!(alice_friends, Some(vec!["clyde".into()]));
+/// assert_eq!(alice_friends, Some(vec!["clyde".into()].into_iter().collect()));
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,7 +89,7 @@ pub struct Map<K: Key, V: Val<A>, A: Actor> {
 }
 
 #[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry<V: Val<A>, A: Actor> {
     // The entry clock tells us which actors edited this entry.
     clock: VClock<A>,

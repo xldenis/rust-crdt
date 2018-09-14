@@ -50,7 +50,7 @@ pub struct Dot<A: Actor> {
 /// or if different replicas are "concurrent" (were mutated in
 /// isolation, and need to be resolved externally).
 #[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VClock<A: Actor> {
     /// dots is the mapping from actors to their associated counters
     pub dots: BTreeMap<A, Counter>,
