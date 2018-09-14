@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     //#[ignore]
-    fn qc_mergqe_converges() {
+    fn qc_merge_converges() {
         QuickCheck::new()
             .gen(StdGen::new(rand::thread_rng(), 1))
             .tests(100)
