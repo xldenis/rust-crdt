@@ -60,15 +60,9 @@ impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
-        } else if other.dots.iter().all(|(w, c)| {
-            self.contains_descendent_element(w, c)
-        })
-        {
+        } else if other.dots.iter().all(|(w, c)| &self.get(w) >= c) {
             Some(Ordering::Greater)
-        } else if self.dots.iter().all(|(w, c)| {
-            other.contains_descendent_element(w, c)
-        })
-        {
+        } else if self.dots.iter().all(|(w, c)| &other.get(w) >= c) {
             Some(Ordering::Less)
         } else {
             None
@@ -163,7 +157,7 @@ impl<A: Actor> VClock<A> {
     /// ```
     ///
     pub fn witness(&mut self, actor: A, counter: Counter) -> Result<()> {
-        if !self.contains_descendent_element(&actor, &counter) {
+        if !(self.get(&actor) >= counter) {
             self.dots.insert(actor, counter);
             Ok(())
         } else {
@@ -191,21 +185,6 @@ impl<A: Actor> VClock<A> {
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
         Dot { actor: actor, counter: next }
-    }
-
-    /// Determine if a single element is present and descendent.
-    /// Generally prefer using the higher-level comparison operators
-    /// between vclocks over this specific method.
-    #[inline]
-    pub fn contains_descendent_element(
-        &self,
-        actor: &A,
-        counter: &Counter,
-    ) -> bool {
-        self.dots
-            .get(actor)
-            .map(|our_counter| our_counter >= counter)
-            .unwrap_or(false)
     }
 
     /// True if two vector clocks have diverged.
@@ -297,7 +276,7 @@ impl<A: Actor> From<Vec<(A, u64)>> for VClock<A> {
 impl<A: Actor> From<Dot<A>> for VClock<A> {
     fn from(dot: Dot<A>) -> Self {
         let mut clock = VClock::new();
-        assert!(clock.witness(dot.actor, dot.counter).is_ok());
+        let _ = clock.witness(dot.actor, dot.counter);
         clock
     }
 }
