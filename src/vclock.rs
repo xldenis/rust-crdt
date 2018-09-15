@@ -238,50 +238,6 @@ impl<A: Actor> VClock<A> {
         self.dots.is_empty()
     }
 
-    /// Return the dots that self dominates compared to another clock.
-    pub fn dominating_dots(
-        &self,
-        dots: &BTreeMap<A, Counter>,
-    ) -> BTreeMap<A, Counter> {
-        let mut ret = BTreeMap::new();
-        for (actor, counter) in self.dots.iter() {
-            let other = dots.get(actor).map(|c| *c).unwrap_or(0);
-            if *counter > other {
-                ret.insert(actor.clone(), *counter);
-            }
-        }
-        ret
-    }
-
-    /// Return a new `VClock` that contains the entries for which we have
-    /// a counter that dominates another `VClock`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crdts::VClock;
-    /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A".to_string(), 3);
-    /// a.witness("B".to_string(), 2);
-    /// a.witness("D".to_string(), 14);
-    /// a.witness("G".to_string(), 22);
-    ///
-    /// b.witness("A".to_string(), 4);
-    /// b.witness("B".to_string(), 1);
-    /// b.witness("C".to_string(), 1);
-    /// b.witness("D".to_string(), 14);
-    /// b.witness("E".to_string(), 5);
-    /// b.witness("F".to_string(), 2);
-    ///
-    /// let dom = a.dominating_vclock(&b);
-    /// assert_eq!(dom.get(&"B".to_string()), 2);
-    /// assert_eq!(dom.get(&"G".to_string()), 22);
-    /// ```
-    pub fn dominating_vclock(&self, other: &VClock<A>) -> VClock<A> {
-        let dots = self.dominating_dots(&other.dots);
-        VClock { dots: dots }
-    }
-
     /// Returns the common elements (same actor and counter)
     /// for two `VClock` instances.
     pub fn intersection(&self, other: &VClock<A>) -> VClock<A> {
@@ -300,7 +256,7 @@ impl<A: Actor> VClock<A> {
         self.dots.iter()
     }
 
-    /// Remove's actors with descendent dots in the given VClock
+    /// Forget actors who appear in the given VClock with descendent dots
     pub fn subtract(&mut self, other: &VClock<A>) {
         for (actor, counter) in other.iter() {
             if counter >= &self.get(&actor) {

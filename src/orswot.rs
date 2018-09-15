@@ -89,34 +89,38 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
     fn merge(&mut self, other: &Self) {
         let mut other_remaining = other.entries.clone();
         let mut keep = HashMap::new();
-        for (entry, clock) in self.entries.clone().into_iter() {
-            match other.entries.get(&entry) {
+        for (entry, mut clock) in self.entries.clone().into_iter() {
+            match other.entries.get(&entry).cloned() {
                 None => {
                     // other doesn't contain this entry because it:
                     //  1. has witnessed it and dropped it
                     //  2. hasn't witnessed it
-                    if clock.dominating_vclock(&other.clock).is_empty() {
-                        // the other orswot has witnessed the entry's clock, and dropped this entry
+                    if clock <= other.clock {
+                        // other has seen this entry and dropped it
                     } else {
-                        // the other orswot has not witnessed this add, so add it
+                        // other has not seen this entry, so add it
                         keep.insert(entry, clock);
                     }
                 }
-                Some(other_entry_clock) => {
+                Some(mut other_entry_clock) => {
                     // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
                     // shouldn't drop it!
-                    let common = clock.intersection(&other_entry_clock);
-                    let luniq = clock.dominating_vclock(&common);
-                    let runiq = other_entry_clock.dominating_vclock(&common);
-                    let lkeep = luniq.dominating_vclock(&other.clock);
-                    let rkeep = runiq.dominating_vclock(&self.clock);
-                    // Perfectly possible that an item in both sets should be dropped
-                    let mut common = common;
-                    common.merge(&lkeep);
-                    common.merge(&rkeep);
+
+                    let mut common = clock.intersection(&other_entry_clock);
+                    clock.subtract(&common);
+                    other_entry_clock.subtract(&common);
+                    clock.subtract(&other.clock);
+                    other_entry_clock.subtract(&self.clock);
+
+                    common.merge(&clock);
+                    common.merge(&other_entry_clock);
+
+                    // Perfectly possible that an item present in both sets
+                    // is dropped
                     if common.is_empty() {
-                        // we should not drop, as there are common clocks
+                        // we should drop, there are no common dots
                     } else {
+                        // we should not drop, as there are common clocks
                         keep.insert(entry.clone(), common);
                     }
                     // don't want to consider this again below
@@ -125,11 +129,11 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
             }
         }
 
-        for (entry, clock) in other_remaining.into_iter() {
-            let dom_clock = clock.dominating_vclock(&self.clock);
-            if !dom_clock.is_empty() {
+        for (entry, mut clock) in other_remaining.into_iter() {
+            clock.subtract(&self.clock);
+            if !clock.is_empty() {
                 // other has witnessed a novel addition, so add it
-                keep.insert(entry, dom_clock);
+                keep.insert(entry, clock);
             }
         }
 
@@ -190,7 +194,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     /// Remove a member using a witnessing clock.
     fn apply_remove(&mut self, member: impl Into<M>, clock: &VClock<A>) {
         let member: M = member.into();
-        if !clock.dominating_vclock(&self.clock).is_empty() {
+        if !(clock <= &self.clock) {
             let mut deferred_drops = self.deferred
                 .remove(&clock)
                 .unwrap_or_else(|| HashSet::new());
@@ -198,10 +202,10 @@ impl<M: Member, A: Actor> Orswot<M, A> {
             self.deferred.insert(clock.clone(), deferred_drops);
         }
 
-        if let Some(existing_clock) = self.entries.remove(&member) {
-            let dom_clock = existing_clock.dominating_vclock(&clock);
-            if !dom_clock.is_empty() {
-                self.entries.insert(member.clone(), dom_clock);
+        if let Some(mut existing_clock) = self.entries.remove(&member) {
+            existing_clock.subtract(&clock);
+            if !existing_clock.is_empty() {
+                self.entries.insert(member.clone(), existing_clock);
             }
         }
     }
@@ -244,7 +248,7 @@ mod tests {
     use super::*;
     extern crate rand;
 
-    use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
+    use quickcheck::{Arbitrary, Gen};
 
     const ACTOR_MAX: u16 = 11;
 
@@ -346,78 +350,70 @@ mod tests {
         }
     }
 
-    fn prop_merge_converges(ops: OpVec) -> bool {
-        // Different interleavings of ops applied to different
-        // orswots should all converge when merged. Apply the
-        // ops to increasing numbers of witnessing orswots,
-        // then merge them together and make sure they have
-        // all converged.
-        let mut result = None;
-        for i in 2..ACTOR_MAX {
-            let mut witnesses: Vec<Orswot<u16, u16>> =
-                (0..i).map(|_| Orswot::new()).collect();
-            for op in ops.ops.iter() {
-                match op {
-                    &Op::Add { member, actor } => {
-                        let witness = &mut witnesses[(actor % i) as usize];
-                        let read_ctx = witness.value();
-                        let op = witness.add(member, read_ctx.derive_add_ctx(actor));
-                        witness.apply(&op);
-                    }
-                    &Op::Remove {
-                        ctx: None,
-                        member,
-                        actor,
-                    } => {
-                        let witness = &mut witnesses[(actor % i) as usize];
-                        let read_ctx = witness.value();
-                        let op = witness
-                            .remove(member, read_ctx.derive_rm_ctx());
-                        witness.apply(&op);
-                    },
-                    &Op::Remove {
-                        ctx: Some(ref ctx),
-                        member,
-                        actor,
-                    } => {
-                        let witness = &mut witnesses[(actor % i) as usize];
-                        witness.apply_remove(member, ctx);
+    quickcheck! {
+        fn prop_merge_converges(ops: OpVec) -> bool {
+            // Different interleavings of ops applied to different
+            // orswots should all converge when merged. Apply the
+            // ops to increasing numbers of witnessing orswots,
+            // then merge them together and make sure they have
+            // all converged.
+            let mut result = None;
+            for i in 2..ACTOR_MAX {
+                let mut witnesses: Vec<Orswot<u16, u16>> =
+                    (0..i).map(|_| Orswot::new()).collect();
+                for op in ops.ops.iter() {
+                    match op {
+                        &Op::Add { member, actor } => {
+                            let witness = &mut witnesses[(actor % i) as usize];
+                            let read_ctx = witness.value();
+                            let op = witness.add(member, read_ctx.derive_add_ctx(actor));
+                            witness.apply(&op);
+                        }
+                        &Op::Remove {
+                            ctx: None,
+                            member,
+                            actor,
+                        } => {
+                            let witness = &mut witnesses[(actor % i) as usize];
+                            let read_ctx = witness.value();
+                            let op = witness
+                                .remove(member, read_ctx.derive_rm_ctx());
+                            witness.apply(&op);
+                        },
+                        &Op::Remove {
+                            ctx: Some(ref ctx),
+                            member,
+                            actor,
+                        } => {
+                            let witness = &mut witnesses[(actor % i) as usize];
+                            witness.apply_remove(member, ctx);
+                        }
                     }
                 }
-            }
-            let mut merged = Orswot::new();
-            for witness in witnesses.iter() {
-                merged.merge(&witness);
-            }
+                let mut merged = Orswot::new();
+                for witness in witnesses.iter() {
+                    merged.merge(&witness);
+                }
 
-            // defer_plunger is used to merge deferred elements from the above.
-            // to illustrate why this is needed, check out `weird_highlight_3`
-            // below.
-            let defer_plunger = Orswot::new();
-            merged.merge(&defer_plunger);
-            if let Some(ref prev_res) = result {
-                if prev_res != &merged {
-                    println!("opvec: {:?}", ops);
-                    println!("result: {:?}", result);
-                    println!("witnesses: {:?}", &witnesses);
-                    println!("merged: {:?}", merged);
-                    return false;
-                };
-            } else {
-                result = Some(merged);
+                // defer_plunger is used to merge deferred elements from the above.
+                // to illustrate why this is needed, check out `weird_highlight_3`
+                // below.
+                let defer_plunger = Orswot::new();
+                merged.merge(&defer_plunger);
+                if let Some(ref prev_res) = result {
+                    if prev_res != &merged {
+                        println!("opvec: {:?}", ops);
+                        println!("result: {:?}", result);
+                        println!("witnesses: {:?}", &witnesses);
+                        println!("merged: {:?}", merged);
+                        return false;
+                    };
+                } else {
+                    result = Some(merged);
+                }
             }
+            true
         }
-        true
-    }
-
-    #[test]
-    //#[ignore]
-    fn qc_merge_converges() {
-        QuickCheck::new()
-            .gen(StdGen::new(rand::thread_rng(), 1))
-            .tests(100)
-            .max_tests(10_000)
-            .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
     }
 
     /// When two orswots have identical clocks, but different elements,
@@ -571,29 +567,39 @@ mod tests {
     // present in both Sets leads to removed items remaining after merge.
     #[test]
     fn test_present_but_removed() {
-        let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("Z", a.value().derive_add_ctx("A".to_string()));
+        let mut a = Orswot::<u8, String>::new();
+        let mut b = Orswot::<u8, String>::new();
+        let a_add_ctx = a.value()
+            .derive_add_ctx("A".to_string());
+        let a_op = a.add(0, a_add_ctx);
         a.apply(&a_op);
-        // Replicate it to C so A has 'Z'->{e, 1}
+        // Replicate it to C so A has 0->{a, 1}
         let c = a.clone();
-        
-        let a_rm_ctx = a.entries.get(&"Z".to_string()).unwrap().clone();
-        a.apply_remove("Z", &a_rm_ctx);
+
+        // TODO: switch away from apply_remove        
+        let a_rm_ctx = a.entries.get(&0).unwrap().clone();
+        a.apply_remove(0, &a_rm_ctx);
         assert_eq!(a.deferred.len(), 0);
 
-        let b_op = b.add("Z", b.value().derive_add_ctx("B".to_string()));
+        let b_add_ctx = b.value()
+            .derive_add_ctx("B".to_string());
+        let b_op = b.add(0, b_add_ctx);
         b.apply(&b_op);
 
-        // Replicate B to A, so now A has a Z, the one with a Dot of
-        // {b,1} and clock of [{a, 1}, {b, 1}]
+        // Replicate B to A, so now A has a 0
+        // the one with a Dot of {b,1} and clock
+        // of [{a, 1}, {b, 1}]
         a.merge(&b);
-        let b_rm_ctx = b.entries.get(&"Z".to_string()).unwrap().clone();
-        b.apply_remove("Z", &b_rm_ctx);
-        // Both C and A have a 'Z', but when they merge, there should be
-        // no 'Z' as C's has been removed by A and A's has been removed by
+
+        // TODO: switch away from apply_remove
+        let b_rm_ctx = b.entries.get(&0).unwrap().clone();
+        b.apply_remove(0, &b_rm_ctx);
+        // Both C and A have a '0', but when they merge, there should be
+        // no '0' as C's has been removed by A and A's has been removed by
         // C.
         a.merge(&b);
         a.merge(&c);
+        println!("{:#?}", a);
         assert!(a.value().val.is_empty());
     }
 
