@@ -4,8 +4,9 @@
 //! # Examples
 //!
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -15,17 +16,17 @@ use vclock::{VClock, Dot, Actor};
 use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Trait bound alias for members in a set
-pub trait Member: Debug + Ord + Clone + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Ord + Clone + Send + Serialize + DeserializeOwned> Member for T {}
+pub trait Member: Debug + Clone + Hash + Eq + Send + Serialize + DeserializeOwned {}
+impl<T: Debug + Clone + Hash + Eq + Send + Serialize + DeserializeOwned> Member for T {}
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
 #[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Orswot<M: Member, A: Actor> {
     clock: VClock<A>,
-    entries: BTreeMap<M, VClock<A>>,
-    deferred: BTreeMap<VClock<A>, BTreeSet<M>>,
+    entries: HashMap<M, VClock<A>>,
+    deferred: HashMap<VClock<A>, HashSet<M>>,
 }
 
 /// Op's define a mutation to a Orswot, Op's must be replayed in the exact order
@@ -87,35 +88,39 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
     /// Merge combines another `Orswot` with this one.
     fn merge(&mut self, other: &Self) {
         let mut other_remaining = other.entries.clone();
-        let mut keep = BTreeMap::new();
-        for (entry, clock) in self.entries.clone().into_iter() {
-            match other.entries.get(&entry) {
+        let mut keep = HashMap::new();
+        for (entry, mut clock) in self.entries.clone().into_iter() {
+            match other.entries.get(&entry).cloned() {
                 None => {
                     // other doesn't contain this entry because it:
                     //  1. has witnessed it and dropped it
                     //  2. hasn't witnessed it
-                    if clock.dominating_vclock(&other.clock).is_empty() {
-                        // the other orswot has witnessed the entry's clock, and dropped this entry
+                    if clock <= other.clock {
+                        // other has seen this entry and dropped it
                     } else {
-                        // the other orswot has not witnessed this add, so add it
+                        // other has not seen this entry, so add it
                         keep.insert(entry, clock);
                     }
                 }
-                Some(other_entry_clock) => {
+                Some(mut other_entry_clock) => {
                     // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
                     // shouldn't drop it!
-                    let common = clock.intersection(&other_entry_clock);
-                    let luniq = clock.dominating_vclock(&common);
-                    let runiq = other_entry_clock.dominating_vclock(&common);
-                    let lkeep = luniq.dominating_vclock(&other.clock);
-                    let rkeep = runiq.dominating_vclock(&self.clock);
-                    // Perfectly possible that an item in both sets should be dropped
-                    let mut common = common;
-                    common.merge(&lkeep);
-                    common.merge(&rkeep);
+
+                    let mut common = clock.intersection(&other_entry_clock);
+                    clock.subtract(&common);
+                    other_entry_clock.subtract(&common);
+                    clock.subtract(&other.clock);
+                    other_entry_clock.subtract(&self.clock);
+
+                    common.merge(&clock);
+                    common.merge(&other_entry_clock);
+
+                    // Perfectly possible that an item present in both sets
+                    // is dropped
                     if common.is_empty() {
-                        // we should not drop, as there are common clocks
+                        // we should drop, there are no common dots
                     } else {
+                        // we should not drop, as there are common clocks
                         keep.insert(entry.clone(), common);
                     }
                     // don't want to consider this again below
@@ -124,18 +129,18 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
             }
         }
 
-        for (entry, clock) in other_remaining.into_iter() {
-            let dom_clock = clock.dominating_vclock(&self.clock);
-            if !dom_clock.is_empty() {
+        for (entry, mut clock) in other_remaining.into_iter() {
+            clock.subtract(&self.clock);
+            if !clock.is_empty() {
                 // other has witnessed a novel addition, so add it
-                keep.insert(entry, dom_clock);
+                keep.insert(entry, clock);
             }
         }
 
         // merge deferred removals
         for (clock, deferred) in other.deferred.iter() {
             let mut our_deferred =
-                self.deferred.remove(&clock).unwrap_or(BTreeSet::new());
+                self.deferred.remove(&clock).unwrap_or(HashSet::new());
             for e in deferred.iter() {
                 our_deferred.insert(e.clone());
             }
@@ -171,8 +176,8 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     pub fn new() -> Self {
         Orswot {
             clock: VClock::new(),
-            entries: BTreeMap::new(),
-            deferred: BTreeMap::new(),
+            entries: HashMap::new(),
+            deferred: HashMap::new(),
         }
     }
 
@@ -189,17 +194,18 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     /// Remove a member using a witnessing clock.
     fn apply_remove(&mut self, member: impl Into<M>, clock: &VClock<A>) {
         let member: M = member.into();
-        if !clock.dominating_vclock(&self.clock).is_empty() {
-            let mut deferred_drops =
-                self.deferred.remove(&clock).unwrap_or_else(|| BTreeSet::new());
+        if !(clock <= &self.clock) {
+            let mut deferred_drops = self.deferred
+                .remove(&clock)
+                .unwrap_or_else(|| HashSet::new());
             deferred_drops.insert(member.clone());
             self.deferred.insert(clock.clone(), deferred_drops);
         }
 
-        if let Some(existing_clock) = self.entries.remove(&member) {
-            let dom_clock = existing_clock.dominating_vclock(&clock);
-            if !dom_clock.is_empty() {
-                self.entries.insert(member.clone(), dom_clock);
+        if let Some(mut existing_clock) = self.entries.remove(&member) {
+            existing_clock.subtract(&clock);
+            if !existing_clock.is_empty() {
+                self.entries.insert(member.clone(), existing_clock);
             }
         }
     }
@@ -218,7 +224,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     }
 
     /// Retrieve the current members.
-    pub fn value(&self) -> ReadCtx<Vec<M>, A> {
+    pub fn value(&self) -> ReadCtx<HashSet<M>, A> {
         ReadCtx {
             add_clock: self.clock.clone(),
             rm_clock: self.clock.clone(),
@@ -228,7 +234,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
 
     fn apply_deferred(&mut self) {
         let deferred = self.deferred.clone();
-        self.deferred = BTreeMap::new();
+        self.deferred = HashMap::new();
         for (clock, entries) in deferred.into_iter() {
             entries.into_iter()
                 .map(|member| self.apply_remove(member, &clock))
@@ -242,7 +248,7 @@ mod tests {
     use super::*;
     extern crate rand;
 
-    use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
+    use quickcheck::{Arbitrary, Gen};
 
     const ACTOR_MAX: u16 = 11;
 
@@ -310,7 +316,7 @@ mod tests {
     impl Arbitrary for OpVec {
         fn arbitrary<G: Gen>(g: &mut G) -> OpVec {
             let mut ops = vec![];
-            let mut seen_adds = BTreeSet::new();
+            let mut seen_adds = HashSet::new();
             for _ in 0..g.gen_range(1, 100) {
                 let op = Op::arbitrary(g);
                 // here we make sure an element is only added
@@ -344,75 +350,70 @@ mod tests {
         }
     }
 
-    fn prop_merge_converges(ops: OpVec) -> bool {
-        // Different interleavings of ops applied to different
-        // orswots should all converge when merged. Apply the
-        // ops to increasing numbers of witnessing orswots,
-        // then merge them together and make sure they have
-        // all converged.
-        let mut results = BTreeSet::new();
-        for i in 2..ACTOR_MAX {
-            let mut witnesses: Vec<Orswot<u16, u16>> =
-                (0..i).map(|_| Orswot::new()).collect();
-            for op in ops.ops.iter() {
-                match op {
-                    &Op::Add { member, actor } => {
-                        let witness = &mut witnesses[(actor % i) as usize];
-                        let read_ctx = witness.value();
-                        let op = witness.add(member, read_ctx.derive_add_ctx(actor));
-                        witness.apply(&op);
-                    }
-                    &Op::Remove {
-                        ctx: None,
-                        member,
-                        actor,
-                    } => {
-                        let witness = &mut witnesses[(actor % i) as usize];
-                        let read_ctx = witness.value();
-                        let op = witness
-                            .remove(member, read_ctx.derive_rm_ctx());
-                        witness.apply(&op);
-                    },
-                    &Op::Remove {
-                        ctx: Some(ref ctx),
-                        member,
-                        actor,
-                    } => {
-                        let witness = &mut witnesses[(actor % i) as usize];
-                        witness.apply_remove(member, ctx);
+    quickcheck! {
+        fn prop_merge_converges(ops: OpVec) -> bool {
+            // Different interleavings of ops applied to different
+            // orswots should all converge when merged. Apply the
+            // ops to increasing numbers of witnessing orswots,
+            // then merge them together and make sure they have
+            // all converged.
+            let mut result = None;
+            for i in 2..ACTOR_MAX {
+                let mut witnesses: Vec<Orswot<u16, u16>> =
+                    (0..i).map(|_| Orswot::new()).collect();
+                for op in ops.ops.iter() {
+                    match op {
+                        &Op::Add { member, actor } => {
+                            let witness = &mut witnesses[(actor % i) as usize];
+                            let read_ctx = witness.value();
+                            let op = witness.add(member, read_ctx.derive_add_ctx(actor));
+                            witness.apply(&op);
+                        }
+                        &Op::Remove {
+                            ctx: None,
+                            member,
+                            actor,
+                        } => {
+                            let witness = &mut witnesses[(actor % i) as usize];
+                            let read_ctx = witness.value();
+                            let op = witness
+                                .remove(member, read_ctx.derive_rm_ctx());
+                            witness.apply(&op);
+                        },
+                        &Op::Remove {
+                            ctx: Some(ref ctx),
+                            member,
+                            actor,
+                        } => {
+                            let witness = &mut witnesses[(actor % i) as usize];
+                            witness.apply_remove(member, ctx);
+                        }
                     }
                 }
-            }
-            let mut merged = Orswot::new();
-            for witness in witnesses.iter() {
-                merged.merge(&witness);
-            }
+                let mut merged = Orswot::new();
+                for witness in witnesses.iter() {
+                    merged.merge(&witness);
+                }
 
-            // defer_plunger is used to merge deferred elements from the above.
-            // to illustrate why this is needed, check out `weird_highlight_3`
-            // below.
-            let defer_plunger = Orswot::new();
-            merged.merge(&defer_plunger);
-
-            results.insert(merged.value().val);
-            if results.len() > 1 {
-                println!("opvec: {:?}", ops);
-                println!("results: {:?}", results);
-                println!("witnesses: {:?}", &witnesses);
-                println!("merged: {:?}", merged);
+                // defer_plunger is used to merge deferred elements from the above.
+                // to illustrate why this is needed, check out `weird_highlight_3`
+                // below.
+                let defer_plunger = Orswot::new();
+                merged.merge(&defer_plunger);
+                if let Some(ref prev_res) = result {
+                    if prev_res != &merged {
+                        println!("opvec: {:?}", ops);
+                        println!("result: {:?}", result);
+                        println!("witnesses: {:?}", &witnesses);
+                        println!("merged: {:?}", merged);
+                        return false;
+                    };
+                } else {
+                    result = Some(merged);
+                }
             }
+            true
         }
-        results.len() == 1
-    }
-
-    #[test]
-    //#[ignore]
-    fn qc_merge_converges() {
-        QuickCheck::new()
-            .gen(StdGen::new(rand::thread_rng(), 1))
-            .tests(100)
-            .max_tests(10_000)
-            .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
     }
 
     /// When two orswots have identical clocks, but different elements,
@@ -448,7 +449,10 @@ mod tests {
         a.apply(&a_op2);
 
         a.merge(&b);
-        assert_eq!(a.value().val, vec!["element".to_string()]);
+        assert_eq!(
+            a.value().val,
+            vec!["element".to_string()].into_iter().collect()
+        );
     }
 
     #[test]
@@ -524,7 +528,10 @@ mod tests {
         let b_op = a.add(1, b.value().derive_add_ctx(7));
         b.apply(&b_op);
         a.merge(&b);
-        assert_eq!(a.value().val, vec![1]);
+        assert_eq!(
+            a.value().val,
+            vec![1].into_iter().collect()
+        );
         let mut expected_clock = VClock::new();
         let op_3 = expected_clock.inc(3);
         let op_7 = expected_clock.inc(7);
@@ -536,23 +543,23 @@ mod tests {
     // port from riak_dt
     #[test]
     fn test_disjoint_merge() {
-        let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("bar", a.value().derive_add_ctx("A".to_string()));
+        let (mut a, mut b) = (Orswot::<u8, String>::new(), Orswot::<u8, String>::new());
+        let a_op = a.add(0, a.value().derive_add_ctx("A".to_string()));
         a.apply(&a_op);
-        assert_eq!(a.value().val, vec!["bar".to_string()]);
-        let b_op = b.add("baz", b.value().derive_add_ctx("B".to_string()));
+        assert_eq!(a.value().val, vec![0].into_iter().collect());
+        let b_op = b.add(1, b.value().derive_add_ctx("B".to_string()));
         b.apply(&b_op);
-        assert_eq!(b.value().val, vec!["baz".to_string()]);
+        assert_eq!(b.value().val, vec![1].into_iter().collect());
         let mut c = a.clone();
-        assert_eq!(c.value().val, vec!["bar".to_string()]);
+        assert_eq!(c.value().val, vec![0].into_iter().collect());
         c.merge(&b);
-        assert_eq!(c.value().val, vec!["bar".to_string(), "baz".to_string()]);
+        assert_eq!(c.value().val, vec![0, 1].into_iter().collect());
 
-        let rm_ctx = a.entries.get(&"bar".to_string()).unwrap().clone();
-        a.apply_remove("bar", &rm_ctx);
+        let rm_ctx = a.entries.get(&0).unwrap().clone();
+        a.apply_remove(0, &rm_ctx);
         let mut d = a.clone();
         d.merge(&c);
-        assert_eq!(d.value().val, vec!["baz".to_string()]);
+        assert_eq!(d.value().val, vec![1].into_iter().collect());
     }
 
     // port from riak_dt
@@ -560,29 +567,39 @@ mod tests {
     // present in both Sets leads to removed items remaining after merge.
     #[test]
     fn test_present_but_removed() {
-        let (mut a, mut b) = (Orswot::<String, String>::new(), Orswot::<String, String>::new());
-        let a_op = a.add("Z", a.value().derive_add_ctx("A".to_string()));
+        let mut a = Orswot::<u8, String>::new();
+        let mut b = Orswot::<u8, String>::new();
+        let a_add_ctx = a.value()
+            .derive_add_ctx("A".to_string());
+        let a_op = a.add(0, a_add_ctx);
         a.apply(&a_op);
-        // Replicate it to C so A has 'Z'->{e, 1}
+        // Replicate it to C so A has 0->{a, 1}
         let c = a.clone();
-        
-        let a_rm_ctx = a.entries.get(&"Z".to_string()).unwrap().clone();
-        a.apply_remove("Z", &a_rm_ctx);
+
+        // TODO: switch away from apply_remove        
+        let a_rm_ctx = a.entries.get(&0).unwrap().clone();
+        a.apply_remove(0, &a_rm_ctx);
         assert_eq!(a.deferred.len(), 0);
 
-        let b_op = b.add("Z", b.value().derive_add_ctx("B".to_string()));
+        let b_add_ctx = b.value()
+            .derive_add_ctx("B".to_string());
+        let b_op = b.add(0, b_add_ctx);
         b.apply(&b_op);
 
-        // Replicate B to A, so now A has a Z, the one with a Dot of
-        // {b,1} and clock of [{a, 1}, {b, 1}]
+        // Replicate B to A, so now A has a 0
+        // the one with a Dot of {b,1} and clock
+        // of [{a, 1}, {b, 1}]
         a.merge(&b);
-        let b_rm_ctx = b.entries.get(&"Z".to_string()).unwrap().clone();
-        b.apply_remove("Z", &b_rm_ctx);
-        // Both C and A have a 'Z', but when they merge, there should be
-        // no 'Z' as C's has been removed by A and A's has been removed by
+
+        // TODO: switch away from apply_remove
+        let b_rm_ctx = b.entries.get(&0).unwrap().clone();
+        b.apply_remove(0, &b_rm_ctx);
+        // Both C and A have a '0', but when they merge, there should be
+        // no '0' as C's has been removed by A and A's has been removed by
         // C.
         a.merge(&b);
         a.merge(&c);
+        println!("{:#?}", a);
         assert!(a.value().val.is_empty());
     }
 
@@ -591,18 +608,18 @@ mod tests {
     // you then store the value with an empty clock (derp).
     #[test]
     fn test_no_dots_left_test() {
-        let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
-        let a_op = a.add("Z", a.value().derive_add_ctx(1));
+        let (mut a, mut b) = (Orswot::<u8, u8>::new(), Orswot::<u8, u8>::new());
+        let a_op = a.add(0, a.value().derive_add_ctx(1));
         a.apply(&a_op);
-        let b_op = b.add("Z", b.value().derive_add_ctx(2));
+        let b_op = b.add(0, b.value().derive_add_ctx(2));
         b.apply(&b_op);
         let c = a.clone();
-        let a_rm_ctx = a.entries.get(&"Z".to_string()).unwrap().clone();
-        a.apply_remove("Z", &a_rm_ctx);
+        let a_rm_ctx = a.entries.get(&0).unwrap().clone();
+        a.apply_remove(0, &a_rm_ctx);
 
         // replicate B to A, now A has B's 'Z'
         a.merge(&b);
-        assert_eq!(a.value().val, vec!["Z".to_string()]);
+        assert_eq!(a.value().val, vec![0].into_iter().collect());
 
         let mut expected_clock = VClock::new();
         let op_1 = expected_clock.inc(1);
@@ -612,13 +629,13 @@ mod tests {
 
         assert_eq!(a.clock, expected_clock);
 
-        let b_rm_ctx = b.entries.get(&"Z".to_string()).unwrap().clone();
-        b.apply_remove("Z", &b_rm_ctx);
+        let b_rm_ctx = b.entries.get(&0).unwrap().clone();
+        b.apply_remove(0, &b_rm_ctx);
         assert!(b.value().val.is_empty());
 
         // Replicate C to B, now B has A's old 'Z'
         b.merge(&c);
-        assert_eq!(b.value().val, vec!["Z".to_string()]);
+        assert_eq!(b.value().val, vec![0].into_iter().collect());
 
         // Merge everything, without the fix You end up with 'Z' present,
         // with no dots
@@ -643,19 +660,25 @@ mod tests {
     // always happen, but may not. (ie, the test needs expanding)
     #[test]
     fn test_dead_node_update() {
-        let mut a = Orswot::<String, u8>::new();
-        let a_op = a.add("A", a.value().derive_add_ctx(1));
-        assert_eq!(a_op, super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: "A".into() });
+        let mut a = Orswot::<u8, u8>::new();
+        let a_op = a.add(0, a.value().derive_add_ctx(1));
+        assert_eq!(
+            a_op,
+            super::Op::Add { dot: Dot { actor: 1, counter: 1 }, member: 0 }
+        );
         a.apply(&a_op);
-        assert_eq!(a.entries.get(&"A".to_string()).unwrap(), &VClock::from(Dot { actor: 1u8, counter: 1 }));
+        assert_eq!(
+            a.entries.get(&0).unwrap(),
+            &VClock::from(Dot { actor: 1u8, counter: 1 })
+        );
 
         let mut b = a.clone();
-        let b_op = b.add("B", b.value().derive_add_ctx(2));
+        let b_op = b.add(1, b.value().derive_add_ctx(2));
         b.apply(&b_op);
         let bctx = b.value().add_clock;
         assert_eq!(bctx, vec![(1, 1), (2, 1)].into());
-        a.apply_remove("A", &bctx);
-        assert_eq!(a.value().val, Vec::<String>::new());
+        a.apply_remove(0, &bctx);
+        assert_eq!(a.value().val, HashSet::new());
     }
 
     #[test]
@@ -683,13 +706,19 @@ mod tests {
         m2.apply(&op3);
 
         assert_eq!(m1.get(&101).val, None);
-        assert_eq!(m2.get(&101).val.unwrap().value().val, vec![1, 2]);
+        assert_eq!(
+            m2.get(&101).val.unwrap().value().val,
+            vec![1, 2].into_iter().collect()
+        );
 
         let snapshot = m1.clone();
         m1.merge(&m2);
         m2.merge(&snapshot);
 
         assert_eq!(m1, m2);
-        assert_eq!(m1.get(&101).val.unwrap().value().val, vec![2]);
+        assert_eq!(
+            m1.get(&101).val.unwrap().value().val,
+            vec![2].into_iter().collect()
+        );
     }
 }

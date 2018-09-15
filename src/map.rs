@@ -67,7 +67,7 @@ impl<A, T> Val<A> for T where
 /// assert_eq!(friends.get(&"alice".into()).val, None);
 /// assert_eq!(
 ///     friends_replica.get(&"alice".into()).val.map(|set| set.value().val),
-///     Some(vec!["bob".to_string(), "clyde".to_string()])
+///     Some(vec!["bob".to_string(), "clyde".to_string()].into_iter().collect())
 /// );
 ///
 /// // On merge, we should see "alice" in the map but her friend set should only have "clyde".
@@ -76,7 +76,7 @@ impl<A, T> Val<A> for T where
 ///
 /// let alice_friends = friends.get(&"alice".into()).val
 ///     .map(|set| set.value().val);
-/// assert_eq!(alice_friends, Some(vec!["clyde".into()]));
+/// assert_eq!(alice_friends, Some(vec!["clyde".into()].into_iter().collect()));
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,7 +89,7 @@ pub struct Map<K: Key, V: Val<A>, A: Actor> {
 }
 
 #[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry<V: Val<A>, A: Actor> {
     // The entry clock tells us which actors edited this entry.
     clock: VClock<A>,
@@ -145,10 +145,10 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
         }
 
         let mut deferred = HashMap::new();
-        for (rm_clock, key) in self.deferred.iter() {
-            let surviving_dots = rm_clock.dominating_vclock(&clock);
-            if !surviving_dots.is_empty() {
-                deferred.insert(surviving_dots, key.clone());
+        for (mut rm_clock, key) in self.deferred.clone().into_iter() {
+            rm_clock.subtract(&clock);
+            if !rm_clock.is_empty() {
+                deferred.insert(rm_clock, key);
             }
         }
         self.deferred = deferred;
@@ -194,41 +194,44 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
         let mut other_remaining = other.entries.clone();
         let mut keep = BTreeMap::new();
         for (key, mut entry) in self.entries.clone().into_iter() {
-            match other.entries.get(&key) {
+            match other.entries.get(&key).cloned() {
                 None => {
                     // other doesn't contain this entry because it:
                     //  1. has witnessed it and dropped it
                     //  2. hasn't witnessed it
-                    let dom_clock = entry.clock.dominating_vclock(&other.clock);
-                    if dom_clock.is_empty() {
-                        // the other map has witnessed the entry's clock, and dropped this entry
+                    entry.clock.subtract(&other.clock);
+                    if entry.clock.is_empty() {
+                        // other has seen this entry and dropped it
                     } else {
-                        // the other map has not witnessed this add, so add it
-                        let dots_that_this_entry_should_not_have = other.clock.dominating_vclock(&dom_clock);
-                        entry.val.truncate(&dots_that_this_entry_should_not_have);
-                        entry.clock = dom_clock;
+                        // the other map has not seen this entry, so add it
+                        let mut actors_who_have_deleted_this_entry = other.clock.clone();
+                        actors_who_have_deleted_this_entry.subtract(&entry.clock);
+                        entry.val.truncate(&actors_who_have_deleted_this_entry);
                         keep.insert(key, entry);
                     }
                 }
-                Some(other_entry) => {
+                Some(mut other_entry) => {
                     // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
                     // shouldn't drop it!
                     let common = entry.clock.intersection(&other_entry.clock);
-                    let luniq = entry.clock.dominating_vclock(&common);
-                    let runiq = other_entry.clock.dominating_vclock(&common);
-                    let lkeep = luniq.dominating_vclock(&other.clock);
-                    let rkeep = runiq.dominating_vclock(&self.clock);
+                    entry.clock.subtract(&common);
+                    other_entry.clock.subtract(&common);
+                    entry.clock.subtract(&other.clock);
+                    other_entry.clock.subtract(&self.clock);
+
                     // Perfectly possible that an item in both sets should be dropped
                     let mut common = common;
-                    common.merge(&lkeep);
-                    common.merge(&rkeep);
+                    common.merge(&entry.clock);
+                    common.merge(&other_entry.clock);
+
                     if !common.is_empty() {
                         // we should not drop, as there are common clocks
                         entry.val.merge(&other_entry.val);
-                        let mut merged_clocks = entry.clock.clone();
-                        merged_clocks.merge(&other_entry.clock);
-                        let dots_that_this_entry_should_not_have = merged_clocks.dominating_vclock(&common);
-                        entry.val.truncate(&dots_that_this_entry_should_not_have);
+                        let mut actors_who_have_deleted_this_entry = entry.clock.clone();
+                        actors_who_have_deleted_this_entry.merge(&other_entry.clock);
+                        actors_who_have_deleted_this_entry.subtract(&common);
+
+                        entry.val.truncate(&actors_who_have_deleted_this_entry);
                         entry.clock = common;
                         keep.insert(key.clone(), entry);
                     }
@@ -239,12 +242,12 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
         }
 
         for (key, mut entry) in other_remaining.into_iter() {
-            let dom_clock = entry.clock.dominating_vclock(&self.clock);
-            if !dom_clock.is_empty() {
+            entry.clock.subtract(&self.clock);
+            if !entry.clock.is_empty() {
                 // other has witnessed a novel addition, so add it
-                let dots_that_this_entry_should_not_have = self.clock.dominating_vclock(&dom_clock);
-                entry.val.truncate(&dots_that_this_entry_should_not_have);
-                entry.clock = dom_clock;
+                let mut actors_who_deleted_this_entry = self.clock.clone();
+                actors_who_deleted_this_entry.subtract(&entry.clock);
+                entry.val.truncate(&actors_who_deleted_this_entry);
                 keep.insert(key, entry);
             }
         }
@@ -331,22 +334,20 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 
     /// Apply a key removal given a clock.
     fn apply_rm(&mut self, key: K, clock: &VClock<A>) {
-        if !clock.dominating_vclock(&self.clock).is_empty() {
+        if !(clock <= &self.clock) {
             let deferred_set = self.deferred.entry(clock.clone())
                 .or_insert_with(|| BTreeSet::new());
             deferred_set.insert(key.clone());
         }
 
         if let Some(mut existing_entry) = self.entries.remove(&key) {
-            let dom_clock = existing_entry.clock.dominating_vclock(&clock);
-            if !dom_clock.is_empty() {
-                existing_entry.clock = dom_clock;
+            existing_entry.clock.subtract(&clock);
+            if !existing_entry.clock.is_empty() {
                 existing_entry.val.truncate(&clock);
                 self.entries.insert(key.clone(), existing_entry);
             }
         }
     }
-
 }
 
 #[cfg(test)]

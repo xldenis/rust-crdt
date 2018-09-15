@@ -50,7 +50,7 @@ pub struct Dot<A: Actor> {
 /// or if different replicas are "concurrent" (were mutated in
 /// isolation, and need to be resolved externally).
 #[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VClock<A: Actor> {
     /// dots is the mapping from actors to their associated counters
     pub dots: BTreeMap<A, Counter>,
@@ -60,15 +60,9 @@ impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
-        } else if other.dots.iter().all(|(w, c)| {
-            self.contains_descendent_element(w, c)
-        })
-        {
+        } else if other.dots.iter().all(|(w, c)| &self.get(w) >= c) {
             Some(Ordering::Greater)
-        } else if self.dots.iter().all(|(w, c)| {
-            other.contains_descendent_element(w, c)
-        })
-        {
+        } else if self.dots.iter().all(|(w, c)| &other.get(w) >= c) {
             Some(Ordering::Less)
         } else {
             None
@@ -89,48 +83,10 @@ impl<A: Actor + Display> Display for VClock<A> {
     }
 }
 
-impl<A: Actor> VClock<A> {
-    /// Returns a new `VClock` instance.
-    pub fn new() -> VClock<A> {
-        VClock { dots: BTreeMap::new() }
-    }
-
-    /// Returns the greatest lower bound of given clocks
-    ///
-    /// # Examples
-    ///
+impl<A: Actor> Causal<A> for VClock<A> {
+    /// Truncates to the greatest-lower-bound of the given VClock and self
     /// ``` rust
-    /// use crdts::VClock;
-    /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A".to_string(), 3);
-    /// a.witness("B".to_string(), 6);
-    /// b.witness("A".to_string(), 2);
-    ///
-    /// let glb = VClock::glb(&a, &b);
-    ///
-    /// assert_eq!(glb.get(&"A".to_string()), 2);
-    /// assert_eq!(glb.get(&"B".to_string()), 0);
-    /// assert!(a >= glb);
-    /// assert!(b >= glb);
-    /// ```
-    pub fn glb(a: &VClock<A>, b: &VClock<A>) -> VClock<A> {
-        let mut glb_vclock = VClock::new();
-        for (actor, a_cntr) in a.dots.iter() {
-            let min_cntr = cmp::min(b.get(actor), *a_cntr);
-            if min_cntr > 0 {
-                // 0 is the implied counter if an actor is not in dots, so we don't
-                // need to waste memory by storing it
-                glb_vclock.dots.insert(actor.clone(), min_cntr);
-            }
-        }
-        glb_vclock
-    }
-
-    /// Truncates the VClock to the greatest-lower-bound of the passed
-    /// in VClock and it's self
-    /// (essentially a mutable version of VClock::glb)
-    /// ``` rust
-    /// use crdts::VClock;
+    /// use crdts::{VClock, Causal};
     /// let mut c = VClock::new();
     /// c.witness(23, 6);
     /// c.witness(89, 14);
@@ -144,7 +100,7 @@ impl<A: Actor> VClock<A> {
     /// c.truncate(&c2); // should remove the 43 => 1 entry
     /// assert_eq!(c.get(&43), 0);
     /// ```
-    pub fn truncate(&mut self, other: &VClock<A>) {
+    fn truncate(&mut self, other: &VClock<A>) {
         let mut actors_to_remove: Vec<A> = Vec::new();
         for (actor, count) in self.dots.iter_mut() {
             let min_count = cmp::min(*count, other.get(actor));
@@ -162,6 +118,29 @@ impl<A: Actor> VClock<A> {
             self.dots.remove(&actor);
         }
     }
+}
+
+impl<A: Actor> CmRDT for VClock<A> {
+    type Op = Dot<A>;
+
+    fn apply(&mut self, dot: &Self::Op) {
+        let _ = self.witness(dot.actor.clone(), dot.counter);
+    }
+}
+
+impl<A: Actor> CvRDT for VClock<A> {
+    fn merge(&mut self, other: &VClock<A>) {
+        for (actor, counter) in other.dots.iter() {
+            let _ = self.witness(actor.clone(), *counter);
+        }
+    }
+}
+
+impl<A: Actor> VClock<A> {
+    /// Returns a new `VClock` instance.
+    pub fn new() -> VClock<A> {
+        VClock { dots: BTreeMap::new() }
+    }
 
     /// For a particular actor, possibly store a new counter
     /// if it dominates.
@@ -178,7 +157,7 @@ impl<A: Actor> VClock<A> {
     /// ```
     ///
     pub fn witness(&mut self, actor: A, counter: Counter) -> Result<()> {
-        if !self.contains_descendent_element(&actor, &counter) {
+        if !(self.get(&actor) >= counter) {
             self.dots.insert(actor, counter);
             Ok(())
         } else {
@@ -191,7 +170,7 @@ impl<A: Actor> VClock<A> {
     /// # Examples
     ///
     /// ```
-    /// use crdts::VClock;
+    /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
     /// let a_op1 = a.inc("A".to_string());
     /// a.apply(&a_op1);
@@ -208,59 +187,12 @@ impl<A: Actor> VClock<A> {
         Dot { actor: actor, counter: next }
     }
 
-    /// Apply a dot to the VClock
-    pub fn apply(&mut self, dot: &Dot<A>) {
-        let _ = self.witness(dot.actor.clone(), dot.counter);
-    }
-
-    /// Merge another vector clock into this one, without
-    /// regard to dominance.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crdts::VClock;
-    /// let (mut a, mut b, mut c) = (VClock::new(), VClock::new(), VClock::new());
-    /// let a_op = a.inc("A".to_string());
-    /// a.apply(&a_op);
-    /// let b_op = b.inc("B".to_string());
-    /// b.apply(&b_op);
-    /// let c_op1 = c.inc("A".to_string());
-    /// c.apply(&c_op1);
-    /// let c_op2 = c.inc("B".to_string());
-    /// c.apply(&c_op2);
-    /// a.merge(&b);
-    /// assert_eq!(a, c);
-    /// ```
-    ///
-    #[allow(unused_must_use)]
-    pub fn merge(&mut self, other: &VClock<A>) {
-        for (actor, counter) in other.dots.iter() {
-            self.witness(actor.clone(), *counter);
-        }
-    }
-
-    /// Determine if a single element is present and descendent.
-    /// Generally prefer using the higher-level comparison operators
-    /// between vclocks over this specific method.
-    #[inline]
-    pub fn contains_descendent_element(
-        &self,
-        actor: &A,
-        counter: &Counter,
-    ) -> bool {
-        self.dots
-            .get(actor)
-            .map(|our_counter| our_counter >= counter)
-            .unwrap_or(false)
-    }
-
     /// True if two vector clocks have diverged.
     ///
     /// # Examples
     ///
     /// ```
-    /// use crdts::VClock;
+    /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
     /// let a_op = a.inc("A".to_string());
     /// a.apply(&a_op);
@@ -285,50 +217,6 @@ impl<A: Actor> VClock<A> {
         self.dots.is_empty()
     }
 
-    /// Return the dots that self dominates compared to another clock.
-    pub fn dominating_dots(
-        &self,
-        dots: &BTreeMap<A, Counter>,
-    ) -> BTreeMap<A, Counter> {
-        let mut ret = BTreeMap::new();
-        for (actor, counter) in self.dots.iter() {
-            let other = dots.get(actor).map(|c| *c).unwrap_or(0);
-            if *counter > other {
-                ret.insert(actor.clone(), *counter);
-            }
-        }
-        ret
-    }
-
-    /// Return a new `VClock` that contains the entries for which we have
-    /// a counter that dominates another `VClock`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crdts::VClock;
-    /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A".to_string(), 3);
-    /// a.witness("B".to_string(), 2);
-    /// a.witness("D".to_string(), 14);
-    /// a.witness("G".to_string(), 22);
-    ///
-    /// b.witness("A".to_string(), 4);
-    /// b.witness("B".to_string(), 1);
-    /// b.witness("C".to_string(), 1);
-    /// b.witness("D".to_string(), 14);
-    /// b.witness("E".to_string(), 5);
-    /// b.witness("F".to_string(), 2);
-    ///
-    /// let dom = a.dominating_vclock(&b);
-    /// assert_eq!(dom.get(&"B".to_string()), 2);
-    /// assert_eq!(dom.get(&"G".to_string()), 22);
-    /// ```
-    pub fn dominating_vclock(&self, other: &VClock<A>) -> VClock<A> {
-        let dots = self.dominating_dots(&other.dots);
-        VClock { dots: dots }
-    }
-
     /// Returns the common elements (same actor and counter)
     /// for two `VClock` instances.
     pub fn intersection(&self, other: &VClock<A>) -> VClock<A> {
@@ -347,12 +235,7 @@ impl<A: Actor> VClock<A> {
         self.dots.iter()
     }
 
-    // /// Consumes the vclock and returns an iterator over dots in the clock
-    // fn into_iter(self) -> impl Iterator<Item=(A, u64)> {
-    //     self.dots.into_iter()
-    // }
-
-    /// Remove's actors with descendent dots in the given VClock
+    /// Forget actors who appear in the given VClock with descendent dots
     pub fn subtract(&mut self, other: &VClock<A>) {
         for (actor, counter) in other.iter() {
             if counter >= &self.get(&actor) {
@@ -393,7 +276,7 @@ impl<A: Actor> From<Vec<(A, u64)>> for VClock<A> {
 impl<A: Actor> From<Dot<A>> for VClock<A> {
     fn from(dot: Dot<A>) -> Self {
         let mut clock = VClock::new();
-        assert!(clock.witness(dot.actor, dot.counter).is_ok());
+        let _ = clock.witness(dot.actor, dot.counter);
         clock
     }
 }
