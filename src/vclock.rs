@@ -92,7 +92,7 @@ impl<A: Actor + Display> Display for VClock<A> {
 impl<A: Actor> Causal<A> for VClock<A> {
     /// Truncates to the greatest-lower-bound of the given VClock and self
     /// ``` rust
-    /// use crdts::VClock;
+    /// use crdts::{VClock, Causal};
     /// let mut c = VClock::new();
     /// c.witness(23, 6);
     /// c.witness(89, 14);
@@ -176,7 +176,7 @@ impl<A: Actor> VClock<A> {
     /// # Examples
     ///
     /// ```
-    /// use crdts::VClock;
+    /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
     /// let a_op1 = a.inc("A".to_string());
     /// a.apply(&a_op1);
@@ -213,7 +213,7 @@ impl<A: Actor> VClock<A> {
     /// # Examples
     ///
     /// ```
-    /// use crdts::VClock;
+    /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
     /// let a_op = a.inc("A".to_string());
     /// a.apply(&a_op);
