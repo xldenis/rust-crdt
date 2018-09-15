@@ -1,5 +1,6 @@
 use serde::{Serialize, de::DeserializeOwned};
 use vclock::{Actor, VClock, Dot};
+use traits::CmRDT;
 
 /// ReadCtx's are used to extract data from CRDT's while maintaining some causal history.
 /// You should store ReadCtx's close to where mutation is exposed to the user.

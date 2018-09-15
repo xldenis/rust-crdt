@@ -89,12 +89,7 @@ impl<A: Actor + Display> Display for VClock<A> {
     }
 }
 
-impl<A: Actor> VClock<A> {
-    /// Returns a new `VClock` instance.
-    pub fn new() -> VClock<A> {
-        VClock { dots: BTreeMap::new() }
-    }
-
+impl<A: Actor> Causal<A> for VClock<A> {
     /// Truncates to the greatest-lower-bound of the given VClock and self
     /// ``` rust
     /// use crdts::VClock;
@@ -111,7 +106,7 @@ impl<A: Actor> VClock<A> {
     /// c.truncate(&c2); // should remove the 43 => 1 entry
     /// assert_eq!(c.get(&43), 0);
     /// ```
-    pub fn truncate(&mut self, other: &VClock<A>) {
+    fn truncate(&mut self, other: &VClock<A>) {
         let mut actors_to_remove: Vec<A> = Vec::new();
         for (actor, count) in self.dots.iter_mut() {
             let min_count = cmp::min(*count, other.get(actor));
@@ -128,6 +123,29 @@ impl<A: Actor> VClock<A> {
         for actor in actors_to_remove {
             self.dots.remove(&actor);
         }
+    }
+}
+
+impl<A: Actor> CmRDT for VClock<A> {
+    type Op = Dot<A>;
+
+    fn apply(&mut self, dot: &Self::Op) {
+        let _ = self.witness(dot.actor.clone(), dot.counter);
+    }
+}
+
+impl<A: Actor> CvRDT for VClock<A> {
+    fn merge(&mut self, other: &VClock<A>) {
+        for (actor, counter) in other.dots.iter() {
+            let _ = self.witness(actor.clone(), *counter);
+        }
+    }
+}
+
+impl<A: Actor> VClock<A> {
+    /// Returns a new `VClock` instance.
+    pub fn new() -> VClock<A> {
+        VClock { dots: BTreeMap::new() }
     }
 
     /// For a particular actor, possibly store a new counter
@@ -173,38 +191,6 @@ impl<A: Actor> VClock<A> {
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
         Dot { actor: actor, counter: next }
-    }
-
-    /// Apply a dot to the VClock
-    pub fn apply(&mut self, dot: &Dot<A>) {
-        let _ = self.witness(dot.actor.clone(), dot.counter);
-    }
-
-    /// Merge another vector clock into this one, without
-    /// regard to dominance.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crdts::VClock;
-    /// let (mut a, mut b, mut c) = (VClock::new(), VClock::new(), VClock::new());
-    /// let a_op = a.inc("A".to_string());
-    /// a.apply(&a_op);
-    /// let b_op = b.inc("B".to_string());
-    /// b.apply(&b_op);
-    /// let c_op1 = c.inc("A".to_string());
-    /// c.apply(&c_op1);
-    /// let c_op2 = c.inc("B".to_string());
-    /// c.apply(&c_op2);
-    /// a.merge(&b);
-    /// assert_eq!(a, c);
-    /// ```
-    ///
-    #[allow(unused_must_use)]
-    pub fn merge(&mut self, other: &VClock<A>) {
-        for (actor, counter) in other.dots.iter() {
-            self.witness(actor.clone(), *counter);
-        }
     }
 
     /// Determine if a single element is present and descendent.
@@ -313,11 +299,6 @@ impl<A: Actor> VClock<A> {
     pub fn iter(&self) -> impl Iterator<Item=(&A, &u64)> {
         self.dots.iter()
     }
-
-    // /// Consumes the vclock and returns an iterator over dots in the clock
-    // fn into_iter(self) -> impl Iterator<Item=(A, u64)> {
-    //     self.dots.into_iter()
-    // }
 
     /// Remove's actors with descendent dots in the given VClock
     pub fn subtract(&mut self, other: &VClock<A>) {
