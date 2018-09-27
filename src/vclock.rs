@@ -156,12 +156,9 @@ impl<A: Actor> VClock<A> {
     /// assert!(a > b);
     /// ```
     ///
-    pub fn witness(&mut self, actor: A, counter: Counter) -> Result<()> {
+    pub fn witness(&mut self, actor: A, counter: Counter) {
         if !(self.get(&actor) >= counter) {
             self.dots.insert(actor, counter);
-            Ok(())
-        } else {
-            Err(Error::ConflictingDot)
         }
     }
 
@@ -276,7 +273,7 @@ impl<A: Actor> From<Vec<(A, u64)>> for VClock<A> {
 impl<A: Actor> From<Dot<A>> for VClock<A> {
     fn from(dot: Dot<A>) -> Self {
         let mut clock = VClock::new();
-        let _ = clock.witness(dot.actor, dot.counter);
+        clock.witness(dot.actor, dot.counter);
         clock
     }
 }
@@ -385,10 +382,10 @@ mod tests {
     #[test]
     fn test_merge_less_left() {
         let (mut a, mut b) = (VClock::new(), VClock::new());
-        a.witness(5, 5).unwrap();
+        a.witness(5, 5);
 
-        b.witness(6, 6).unwrap();
-        b.witness(7, 7).unwrap();
+        b.witness(6, 6);
+        b.witness(7, 7);
 
         a.merge(&b);
         assert_eq!(a.get(&5), 5);
@@ -399,10 +396,10 @@ mod tests {
     #[test]
     fn test_merge_less_right() {
         let (mut a, mut b) = (VClock::new(), VClock::new());
-        a.witness(6, 6).unwrap();
-        a.witness(7, 7).unwrap();
+        a.witness(6, 6);
+        a.witness(7, 7);
 
-        b.witness(5, 5).unwrap();
+        b.witness(5, 5);
 
         a.merge(&b);
         assert_eq!(a.get(&5), 5);
@@ -413,11 +410,11 @@ mod tests {
     #[test]
     fn test_merge_same_id() {
         let (mut a, mut b) = (VClock::new(), VClock::new());
-        a.witness(1, 1).unwrap();
-        a.witness(2, 1).unwrap();
+        a.witness(1, 1);
+        a.witness(2, 1);
 
-        b.witness(1, 1).unwrap();
-        b.witness(3, 1).unwrap();
+        b.witness(1, 1);
+        b.witness(3, 1);
 
         a.merge(&b);
         assert_eq!(a.get(&1), 1);
@@ -430,10 +427,10 @@ mod tests {
         assert_eq!(VClock::<i8>::new(), VClock::new());
 
         let (mut a, mut b) = (VClock::new(), VClock::new());
-        a.witness("A".to_string(), 1).unwrap();
-        a.witness("A".to_string(), 2).unwrap();
-        assert!(a.witness("A".to_string(), 0).is_err());
-        b.witness("A".to_string(), 1).unwrap();
+        a.witness("A".to_string(), 1);
+        a.witness("A".to_string(), 2);
+        a.witness("A".to_string(), 0);
+        b.witness("A".to_string(), 1);
 
         // a {A:2}
         // b {A:1}
@@ -442,7 +439,7 @@ mod tests {
         assert!(b < a);
         assert!(a != b);
 
-        b.witness("A".to_string(), 3).unwrap();
+        b.witness("A".to_string(), 3);
         // a {A:2}
         // b {A:3}
         // expect: b dominates
@@ -450,7 +447,7 @@ mod tests {
         assert!(a < b);
         assert!(a != b);
 
-        a.witness("B".to_string(), 1).unwrap();
+        a.witness("B".to_string(), 1);
         // a {A:2, B:1}
         // b {A:3}
         // expect: concurrent
@@ -458,7 +455,7 @@ mod tests {
         assert!(!(a > b));
         assert!(!(b > a));
 
-        a.witness("A".to_string(), 3).unwrap();
+        a.witness("A".to_string(), 3);
         // a {A:3, B:1}
         // b {A:3}
         // expect: a dominates
@@ -466,7 +463,7 @@ mod tests {
         assert!(b < a);
         assert!(a != b);
 
-        b.witness("B".to_string(), 2).unwrap();
+        b.witness("B".to_string(), 2);
         // a {A:3, B:1}
         // b {A:3, B:2}
         // expect: b dominates
@@ -474,7 +471,7 @@ mod tests {
         assert!(a < b);
         assert!(a != b);
 
-        a.witness("B".to_string(), 2).unwrap();
+        a.witness("B".to_string(), 2);
         // a {A:3, B:2}
         // b {A:3, B:2}
         // expect: equal
