@@ -411,8 +411,8 @@ mod tests {
 
         // on another clock, remove 5 with an advanced clock for witnesses 1 and 4
         let mut vc = VClock::new();
-        vc.witness(1, 3).unwrap();
-        vc.witness(4, 8).unwrap();
+        vc.witness(1, 3);
+        vc.witness(4, 8);
 
         // remove from b (has not yet seen add for 5) with advanced ctx
         b.apply_remove(5, &vc);

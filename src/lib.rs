@@ -12,7 +12,7 @@ pub use pncounter::PNCounter;
 pub use map::Map;
 pub use ctx::{ReadCtx, AddCtx, RmCtx};
 pub use vclock::{VClock, Dot, Actor};
-pub use traits::{CvRDT, CmRDT, Causal};
+pub use traits::{CvRDT, CmRDT, Causal, FunkyCvRDT, FunkyCmRDT};
 
 
 /// `traits` contains Trait commonly used when working with CRDT's
