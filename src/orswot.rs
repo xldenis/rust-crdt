@@ -29,7 +29,7 @@ pub struct Orswot<M: Member, A: Actor> {
     deferred: HashMap<VClock<A>, HashSet<M>>,
 }
 
-/// Op's define a mutation to a Orswot, Op's must be replayed in the exact order
+/// Op's define an edit to an Orswot, Op's must be replayed in the exact order
 /// they were produced to guarantee convergence.
 ///
 /// Op's are idempotent, that is, applying an Op twice will not have an effect
@@ -248,110 +248,38 @@ mod tests {
     use super::*;
     extern crate rand;
 
-    use quickcheck::{Arbitrary, Gen};
-
-    const ACTOR_MAX: u16 = 11;
-
-    // TODO(tyler) perform quickchecking a la https://github.com/basho/riak_dt/blob/develop/src/riak_dt_orswot.erl#L625
-    #[derive(Debug, Clone)]
-    enum Op {
-        Add { member: u16, actor: u16 },
-        Remove {
-            member: u16,
-            actor: u16,
-            ctx: Option<VClock<u16>>,
-        },
-    }
-
-    impl Arbitrary for Op {
-        fn arbitrary<G: Gen>(g: &mut G) -> Op {
-            if g.gen_weighted_bool(2) {
-                Op::Add {
-                    member: g.gen_range(0, ACTOR_MAX),
-                    actor: g.gen_range(0, ACTOR_MAX),
-                }
-            } else {
-                // HACK always provide a ctx with removals to
-                // bypass non-deterministic removal behavior when
-                // omitting it.
-                let ctx = if g.gen_weighted_bool(1) {
-                    Some(VClock::arbitrary(g))
-                } else {
-                    None
-                };
-
-                Op::Remove {
-                    member: g.gen_range(0, ACTOR_MAX),
-                    actor: g.gen_range(0, ACTOR_MAX),
-                    ctx: ctx,
-                }
-            }
-        }
-
-        fn shrink(&self) -> Box<Iterator<Item = Op>> {
-            match self {
-                &Op::Remove {
-                    ctx: Some(ref ctx),
-                    member,
-                    actor,
-                } => {
-                    Box::new(ctx.shrink().map(move |c| {
-                        Op::Remove {
-                            ctx: Some(c),
-                            member: member,
-                            actor: actor,
-                        }
-                    }))
-                }
-                _ => Box::new(vec![].into_iter()),
-            }
-        }
-    }
+    const ACTOR_MAX: u8 = 11;
 
     #[derive(Debug, Clone)]
     struct OpVec {
-        ops: Vec<Op>,
+        ops: Vec<(u8, Op<u8, u8>)>,
     }
 
-    impl Arbitrary for OpVec {
-        fn arbitrary<G: Gen>(g: &mut G) -> OpVec {
-            let mut ops = vec![];
-            let mut seen_adds = HashSet::new();
-            for _ in 0..g.gen_range(1, 100) {
-                let op = Op::arbitrary(g);
-                // here we make sure an element is only added
-                // once, to force determinism in the face of
-                // behavior shown in `weird_highlight_4` below
-                match op.clone() {
-                    Op::Add { member, .. } => {
-                        if !seen_adds.contains(&member) {
-                            seen_adds.insert(member.clone());
-                            ops.push(op);
-                        }
+    fn build_opvec(op_prims: Vec<(u8, u8, u8, u64)>) -> OpVec {
+        let mut ops = Vec::new();
+        for (actor, member, choice, counter) in op_prims {
+            let op = match choice % 2 {
+                0 => {
+                    Op::Add {
+                        member,
+                        dot: Dot { actor, counter }
                     }
-                    _ => {
-                        ops.push(op);
+                },
+                _ => {
+                    Op::Rm {
+                        member,
+                        clock: Dot { actor, counter }.into()
                     }
                 }
-
-            }
-            OpVec { ops: ops }
+            };
+            ops.push((actor, op));
         }
-
-        fn shrink(&self) -> Box<Iterator<Item = OpVec>> {
-            let mut smaller = vec![];
-            for i in 0..self.ops.len() {
-                let mut clone = self.clone();
-                clone.ops.remove(i);
-                smaller.push(clone);
-            }
-
-            Box::new(smaller.into_iter())
-        }
+        OpVec { ops }
     }
-
+    
     quickcheck! {
-        fn prop_merge_converges(ops: OpVec) -> bool {
+        fn prop_merge_converges(op_prims: Vec<(u8, u8, u8, u64)>) -> bool {
+            let ops = build_opvec(op_prims);
             // Different interleavings of ops applied to different
             // orswots should all converge when merged. Apply the
             // ops to increasing numbers of witnessing orswots,
@@ -359,34 +287,19 @@ mod tests {
             // all converged.
             let mut result = None;
             for i in 2..ACTOR_MAX {
-                let mut witnesses: Vec<Orswot<u16, u16>> =
+                let mut witnesses: Vec<Orswot<u8, u8>> =
                     (0..i).map(|_| Orswot::new()).collect();
-                for op in ops.ops.iter() {
+                for op_pair in ops.ops.iter() {
+                    let (actor, op) = op_pair;
+                    let witness = &mut witnesses[(actor % i) as usize];
                     match op {
-                        &Op::Add { member, actor } => {
-                            let witness = &mut witnesses[(actor % i) as usize];
+                        Op::Add { member, dot: _ } => {
                             let read_ctx = witness.value();
-                            let op = witness.add(member, read_ctx.derive_add_ctx(actor));
-                            witness.apply(&op);
-                        }
-                        &Op::Remove {
-                            ctx: None,
-                            member,
-                            actor,
-                        } => {
-                            let witness = &mut witnesses[(actor % i) as usize];
-                            let read_ctx = witness.value();
-                            let op = witness
-                                .remove(member, read_ctx.derive_rm_ctx());
+                            let op = witness.add(*member, read_ctx.derive_add_ctx(*actor));
                             witness.apply(&op);
                         },
-                        &Op::Remove {
-                            ctx: Some(ref ctx),
-                            member,
-                            actor,
-                        } => {
-                            let witness = &mut witnesses[(actor % i) as usize];
-                            witness.apply_remove(member, ctx);
+                        Op::Rm { member, clock } => {
+                            witness.apply_remove(*member, clock);
                         }
                     }
                 }
@@ -404,7 +317,7 @@ mod tests {
                     if prev_res != &merged {
                         println!("opvec: {:?}", ops);
                         println!("result: {:?}", result);
-                        println!("witnesses: {:?}", &witnesses);
+                        println!("witnesses: {:?}", witnesses);
                         println!("merged: {:?}", merged);
                         return false;
                     };
