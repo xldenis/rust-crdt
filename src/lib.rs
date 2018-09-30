@@ -42,11 +42,6 @@ extern crate serde_derive;
 extern crate serde;
 extern crate bincode;
 
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
-
-
 use bincode::{Infinite, deserialize, serialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
