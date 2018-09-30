@@ -67,7 +67,7 @@ impl<A: Actor> GCounter<A> {
         GCounter { inner: VClock::new() }
     }
 
-    /// Increments a particular actor's counter.
+    /// Increment the counter.
     pub fn inc(&self, actor: A) -> Dot<A> {
         self.inner.inc(actor)
     }
@@ -75,26 +75,5 @@ impl<A: Actor> GCounter<A> {
     /// Returns the current sum of this counter.
     pub fn value(&self) -> u64 {
         self.inner.dots.values().fold(0, |acc, count| acc + count)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_basic() {
-        let (mut a, mut b) = (GCounter::new(), GCounter::new());
-        let a_op = a.inc("A".to_string());
-        let b_op = b.inc("B".to_string());
-        a.apply(&a_op);
-        b.apply(&b_op);
-        assert_eq!(a.value(), b.value());
-        assert!(a == b);
-        
-        let a_op2 = a.inc("A".to_string());
-        a.apply(&a_op2);
-
-        assert!(a > b);
     }
 }
