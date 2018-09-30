@@ -283,32 +283,20 @@ mod tests {
     extern crate rand;
     extern crate quickcheck;
 
-    use self::quickcheck::{Arbitrary, Gen};
     use super::*;
 
-    impl<A: Actor + Arbitrary> Arbitrary for VClock<A> {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
-            let mut v = VClock::new();
-            for _ in 0..g.gen_range(0, 7) {
-                let witness = A::arbitrary(g);
-                let _ = v.witness(witness, g.gen_range(1, 7));
-            }
-            v
+    fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
+        let mut v = VClock::new();
+        for actor in prims {
+            let op = v.inc(actor);
+            v.apply(&op);
         }
-
-        fn shrink(&self) -> Box<Iterator<Item = VClock<A>>> {
-            let mut smaller = vec![];
-            for k in self.dots.keys() {
-                let mut vc = self.clone();
-                vc.dots.remove(k);
-                smaller.push(vc)
-            }
-            Box::new(smaller.into_iter())
-        }
+        v
     }
 
     quickcheck! {
-        fn prop_from_iter_of_iter_is_nop(clock: VClock<u8>) -> bool {
+        fn prop_from_iter_of_iter_is_nop(prims: Vec<u8>) -> bool {
+            let clock = build_vclock(prims);
             clock == clock.clone().into_iter().collect()
         }
 
@@ -338,20 +326,23 @@ mod tests {
             single == double
         }
 
-        fn prop_truncate_self_is_nop(clock: VClock<u8>) -> bool {
+        fn prop_truncate_self_is_nop(prims: Vec<u8>) -> bool {
+            let clock = build_vclock(prims);
             let mut clock_truncated = clock.clone();
             clock_truncated.truncate(&clock);
 
             clock_truncated == clock
         }
 
-        fn prop_subtract_with_empty_is_nop(clock: VClock<u8>) -> bool {
+        fn prop_subtract_with_empty_is_nop(prims: Vec<u8>) -> bool {
+            let clock = build_vclock(prims);
             let mut subbed  = clock.clone();
             subbed.subtract(&VClock::new());
             subbed == clock
         }
 
-        fn prop_subtract_self_is_empty(clock: VClock<u8>) -> bool {
+        fn prop_subtract_self_is_empty(prims: Vec<u8>) -> bool {
+            let clock = build_vclock(prims);
             let mut subbed  = clock.clone();
             subbed.subtract(&clock);
             subbed == VClock::new()
@@ -361,7 +352,7 @@ mod tests {
     #[test]
     fn test_subtract() {
         let mut a: VClock<u8> = vec![(1, 4), (2, 3), (5, 9)].into_iter().collect();
-        let     b: VClock<u8> = vec![(1, 5), (2, 3), (5, 8)].into_iter().collect();
+        let b: VClock<u8> = vec![(1, 5), (2, 3), (5, 8)].into_iter().collect();
         let expected: VClock<u8> = vec![(5, 9)].into_iter().collect();
 
         a.subtract(&b);
