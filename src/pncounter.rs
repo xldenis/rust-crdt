@@ -118,99 +118,56 @@ impl<A: Actor> PNCounter<A> {
 mod tests {
     extern crate rand;
     extern crate quickcheck;
-
-    use self::quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
     use super::*;
 
     use std::collections::BTreeSet;
 
-    const ACTOR_MAX: u16 = 11;
+    const ACTOR_MAX: u8 = 11;
 
-    impl Arbitrary for Op<i16> {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
-            let actor = g.gen_range(0, ACTOR_MAX) as i16;
-            let counter = g.gen_range(0, 200);
-            let dot = Dot { actor, counter };
-            
-            let dir = if g.gen_weighted_bool(2) {
+    fn build_op(prims: (u8, u64, bool)) -> Op<u8> {
+        let (actor, counter, dir_choice) = prims;
+        Op {
+            dot: Dot { actor, counter },
+            dir: if dir_choice {
                 Dir::Pos
             } else {
                 Dir::Neg
-            };
-
-            Op { dot, dir }
-        }
-
-        fn shrink(&self) -> Box<Iterator<Item = Self>> {
-            Box::new(vec![].into_iter())
+            }
         }
     }
 
-    #[derive(Debug, Clone)]
-    struct OpVec {
-        ops: Vec<Op<i16>>,
-    }
+    quickcheck! {
+        fn prop_merge_converges(op_prims: Vec<(u8, u64, bool)>) -> bool {
+            let ops: Vec<Op<u8>> = op_prims.into_iter().map(build_op).collect();
 
-    impl Arbitrary for OpVec {
-        fn arbitrary<G: Gen>(g: &mut G) -> OpVec {
-            let mut ops = vec![];
-            for _ in 0..g.gen_range(1, 100) {
-                ops.push(Op::arbitrary(g));
+            let mut results = BTreeSet::new();
+
+            // Permute the interleaving of operations should converge.
+            // Largely taken directly from orswot
+            for i in 2..ACTOR_MAX {
+                let mut witnesses: Vec<PNCounter<u8>> =
+                    (0..i).map(|_| PNCounter::new()).collect();
+                for op in ops.iter() {
+                    let index = op.dot.actor as usize % i as usize;
+                    let witness = &mut witnesses[index];
+                    witness.apply(op);
+                }
+                let mut merged = PNCounter::new();
+                for witness in witnesses.iter() {
+                    merged.merge(&witness);
+                }
+
+                results.insert(merged.value());
+                if results.len() > 1 {
+                    println!("opvec: {:?}", ops);
+                    println!("results: {:?}", results);
+                    println!("witnesses: {:?}", &witnesses);
+                    println!("merged: {:?}", merged);
+                }
             }
-            OpVec { ops: ops }
+            results.len() == 1
         }
-
-        fn shrink(&self) -> Box<Iterator<Item = OpVec>> {
-            let mut smaller = vec![];
-            for i in 0..self.ops.len() {
-                let mut clone = self.clone();
-                clone.ops.remove(i);
-                smaller.push(clone);
-            }
-
-            Box::new(smaller.into_iter())
-        }
     }
-
-    fn prop_merge_converges(ops: OpVec) -> bool {
-        let mut results = BTreeSet::new();
-
-        // Permute the interleaving of operations should converge.
-        // Largely taken directly from orswot
-        for i in 2..ACTOR_MAX {
-            let mut witnesses: Vec<PNCounter<i16>> =
-                (0..i).map(|_| PNCounter::new()).collect();
-            for op in ops.ops.iter() {
-                let index = op.dot.actor as usize % i as usize;
-                let witness = &mut witnesses[index];
-                witness.apply(op);
-            }
-            let mut merged = PNCounter::new();
-            for witness in witnesses.iter() {
-                merged.merge(&witness);
-            }
-
-            results.insert(merged.value());
-            if results.len() > 1 {
-                println!("opvec: {:?}", ops);
-                println!("results: {:?}", results);
-                println!("witnesses: {:?}", &witnesses);
-                println!("merged: {:?}", merged);
-            }
-        }
-        results.len() == 1
-    }
-
-
-    #[test]
-    fn qc_merge_converges() {
-        QuickCheck::new()
-            .gen(StdGen::new(rand::thread_rng(), 1))
-            .tests(1_000)
-            .max_tests(10_000)
-            .quickcheck(prop_merge_converges as fn(OpVec) -> bool);
-    }
-
 
     #[test]
     fn test_basic() {
