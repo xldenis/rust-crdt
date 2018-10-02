@@ -8,7 +8,7 @@ use traits::CmRDT;
 /// e.g. Ship ReadCtx to the clients, then derive an Add/RmCtx and ship that back to
 /// where the CRDT is stored to perform the mutation operation.
 #[serde(bound(deserialize = ""))]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadCtx<V: Serialize + DeserializeOwned, A: Actor> {
     /// clock used to derive an AddCtx
     pub add_clock: VClock<A>,
@@ -24,15 +24,19 @@ pub struct ReadCtx<V: Serialize + DeserializeOwned, A: Actor> {
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddCtx<A: Actor> {
-    pub(crate) clock: VClock<A>,
-    pub(crate) dot: Dot<A>
+    /// The adding vclock context
+    pub clock: VClock<A>,
+
+    /// The Actor and the Actor's version at the time of the add
+    pub dot: Dot<A>
 }
 
 /// RmCtx is used for mutations that remove information from a CRDT
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RmCtx<A: Actor> {
-    pub(crate) clock: VClock<A>
+    /// The removing vclock context
+    pub clock: VClock<A>
 }
 
 impl<V: Serialize + DeserializeOwned, A: Actor> ReadCtx<V, A> {
