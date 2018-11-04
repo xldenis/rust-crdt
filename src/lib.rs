@@ -40,44 +40,6 @@ pub mod error;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
-extern crate bincode;
 
-use bincode::{Infinite, deserialize, serialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-
-/// Dumps this type to binary.
-///
-/// # Examples
-///
-/// ```
-/// use crdts::{Orswot, CmRDT, to_binary, from_binary};
-/// let mut a: Orswot<u8, u8> = Orswot::new();
-/// let op = a.add(1, a.value().derive_add_ctx(1));
-/// a.apply(&op);
-/// let encoded = to_binary(&a);
-/// let decoded = from_binary(encoded).unwrap();
-/// assert_eq!(a, decoded);
-/// ```
-pub fn to_binary<A: Serialize>(s: &A) -> Vec<u8> {
-    serialize(s, Infinite).unwrap()
-}
-
-/// Attempts to reconstruct a type from binary.
-///
-/// # Examples
-///
-/// ```
-/// use crdts::{Orswot, CmRDT, to_binary, from_binary};
-/// let mut a: Orswot<u8, u8> = Orswot::new();
-/// let op = a.add(1, a.value().derive_add_ctx(1));
-/// a.apply(&op);
-/// let encoded = to_binary(&a);
-/// let decoded = from_binary(encoded).unwrap();
-/// assert_eq!(a, decoded);
-/// ```
-pub fn from_binary<A: DeserializeOwned>(
-    encoded: Vec<u8>,
-) -> bincode::Result<A> {
-    deserialize(&encoded[..])
-}

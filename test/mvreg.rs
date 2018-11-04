@@ -52,7 +52,9 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
     assert_eq!(read_ctx.val, vec![23, 23]);
     assert_eq!(
         read_ctx.add_clock,
-        VClock::from(vec![(4, 1), (7, 1)])
+        vec![Dot::new(4, 1), Dot::new(7, 1)]
+            .into_iter()
+            .collect()
     );
 }
 
@@ -74,7 +76,9 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
     assert_eq!(read_ctx.val, vec![23, 23]);
     assert_eq!(
         read_ctx.add_clock,
-        VClock::from(vec![(4, 1), (7, 1)])
+        vec![Dot::new(4, 1), Dot::new(7, 1)]
+            .into_iter()
+            .collect()
     );
 }
 
@@ -96,8 +100,7 @@ fn test_multi_val() {
     let read_ctx = r1.read();
     
     assert!(
-        read_ctx.val == vec![32, 82] ||
-            read_ctx.val == vec![82, 32]
+        read_ctx.val == vec![32, 82] || read_ctx.val == vec![82, 32]
     );
 }
 

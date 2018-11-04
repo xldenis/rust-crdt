@@ -3,10 +3,11 @@
 //! # Examples
 //!
 //! ```
-//! use crdts::VClock;
-//! let (mut a, mut b) = (VClock::new(), VClock::new());
-//! a.witness("A".to_string(), 2);
-//! b.witness("A".to_string(), 1);
+//! use crdts::*;
+//! let mut a = VClock::new();
+//! let mut b = VClock::new();
+//! a.apply_dot(Dot::new("A".to_string(), 2));
+//! b.apply_dot(Dot::new("A".to_string(), 1));
 //! assert!(a > b);
 //! ```
 
@@ -19,10 +20,7 @@ use std::cmp::{self, Ordering};
 use std::collections::{BTreeMap, btree_map};
 use std::hash::Hash;
 
-/// A counter is used to track causality at a particular actor.
-pub type Counter = u64;
-
-/// Common Actor type, Actors are unique identifier for every `thing` mutating a VClock.
+/// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
 pub trait Actor: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug {}
 impl<A: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug> Actor for A {}
@@ -35,10 +33,15 @@ pub struct Dot<A: Actor> {
     /// The actor identifier
     pub actor: A,
     /// The current version of this actor
-    pub counter: Counter
+    pub counter: u64
 }
 
-// TODO: VClock derives an Ord implementation, but a total order over VClocks doesn't exist. I think this may mess up our BTreeMap usage in ORSWOT and friends
+impl<A: Actor> Dot<A> {
+    /// Build a Dot from an actor and counter
+    pub fn new(actor: A, counter: u64) -> Self {
+        Dot { actor, counter }
+    }
+}
 
 /// A `VClock` is a standard vector clock.
 /// It contains a set of "actors" and associated counters.
@@ -53,7 +56,7 @@ pub struct Dot<A: Actor> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VClock<A: Actor> {
     /// dots is the mapping from actors to their associated counters
-    pub dots: BTreeMap<A, Counter>,
+    pub dots: BTreeMap<A, u64>,
 }
 
 impl<A: Actor> PartialOrd for VClock<A> {
@@ -86,16 +89,16 @@ impl<A: Actor + Display> Display for VClock<A> {
 impl<A: Actor> Causal<A> for VClock<A> {
     /// Truncates to the greatest-lower-bound of the given VClock and self
     /// ``` rust
-    /// use crdts::{VClock, Causal};
+    /// use crdts::*;
     /// let mut c = VClock::new();
-    /// c.witness(23, 6);
-    /// c.witness(89, 14);
+    /// c.apply_dot(Dot::new(23, 6));
+    /// c.apply_dot(Dot::new(89, 14));
     /// let c2 = c.clone();
     ///
     /// c.truncate(&c2); // should be a no-op
     /// assert_eq!(c, c2);
     ///
-    /// c.witness(43, 1);
+    /// c.apply_dot(Dot::new(43, 1));
     /// assert_eq!(c.get(&43), 1);
     /// c.truncate(&c2); // should remove the 43 => 1 entry
     /// assert_eq!(c.get(&43), 0);
@@ -124,14 +127,14 @@ impl<A: Actor> CmRDT for VClock<A> {
     type Op = Dot<A>;
 
     fn apply(&mut self, dot: &Self::Op) {
-        let _ = self.witness(dot.actor.clone(), dot.counter);
+        self.apply_dot(dot.clone());
     }
 }
 
 impl<A: Actor> CvRDT for VClock<A> {
     fn merge(&mut self, other: &VClock<A>) {
         for (actor, counter) in other.dots.iter() {
-            let _ = self.witness(actor.clone(), *counter);
+            self.apply_dot(Dot::new(actor.clone(), *counter));
         }
     }
 }
@@ -142,42 +145,62 @@ impl<A: Actor> VClock<A> {
         VClock { dots: BTreeMap::new() }
     }
 
-    /// For a particular actor, possibly store a new counter
-    /// if it dominates.
+    /// Apply a Dot to this vclock.
     ///
     /// # Examples
-    ///
     /// ```
-    /// use crdts::VClock;
-    /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.witness("A".to_string(), 2);
-    /// a.witness("A".to_string(), 0); // ignored because 2 dominates 0
-    /// b.witness("A".to_string(), 1);
-    /// assert!(a > b);
-    /// ```
+    /// use crdts::*;
+    /// let mut v = VClock::new();
     ///
-    pub fn witness(&mut self, actor: A, counter: Counter) {
-        if !(self.get(&actor) >= counter) {
-            self.dots.insert(actor, counter);
+    /// v.apply_dot(Dot::new("A".to_string(), 2));
+    /// 
+    /// // now all dots applied to `v` from actor `A` where
+    /// // the counter is not bigger than 2 are nops.
+    /// v.apply_dot(Dot::new("A".to_string(), 0));
+    /// assert_eq!(v.get(&"A".to_string()), 2);
+    /// ```
+    pub fn apply_dot(&mut self, dot: Dot<A>) {
+        if !(self.get(&dot.actor) >= dot.counter) {
+            self.dots.insert(dot.actor, dot.counter);
         }
     }
 
-    /// For a particular actor, increment the associated counter.
+    /// Immediately increment an actor's counter.
     ///
     /// # Examples
+    /// ```
+    /// use crdts::VClock;
+    /// let mut v = VClock::new();
     ///
+    /// v.apply_inc("A".to_string());
+    /// assert_eq!(v.get(&"A".to_string()), 1);
+    /// ```
+    pub fn apply_inc(&mut self, actor: A) {
+        let inc_counter = self.get(&actor) + 1;
+        self.apply_dot(Dot::new(actor, inc_counter));
+    }
+
+    /// Generate Op to increment an actor's counter.
+    ///
+    /// # Examples
     /// ```
     /// use crdts::{VClock, CmRDT};
-    /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// let a_op1 = a.inc("A".to_string());
-    /// a.apply(&a_op1);
-    /// let a_op2 = a.inc("A".to_string());
-    /// a.apply(&a_op2);
+    /// let mut a = VClock::new();
     ///
-    /// a.witness("A".to_string(), 0); // ignored because 2 dominates 0
-    /// let b_op = b.inc("A".to_string());
-    /// b.apply(&b_op);
-    /// assert!(a > b);
+    /// // `a.inc()` does not mutate the vclock!
+    /// let op = a.inc("A".to_string());
+    /// assert_eq!(a, VClock::new());
+    ///
+    /// // we must apply the op to the VClock to have
+    /// // its edit take effect.
+    /// a.apply(&op);
+    /// assert_eq!(a.get(&"A".to_string()), 1);
+    ///
+    /// // Op's can be replicated to another node and
+    /// // applied to the local state there.
+    /// let mut other_node = VClock::new();
+    /// other_node.apply(&op);
+    /// assert_eq!(other_node.get(&"A".to_string()), 1);
     /// ```
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
@@ -187,7 +210,6 @@ impl<A: Actor> VClock<A> {
     /// True if two vector clocks have diverged.
     ///
     /// # Examples
-    ///
     /// ```
     /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
@@ -203,7 +225,7 @@ impl<A: Actor> VClock<A> {
 
     /// Return the associated counter for this actor.
     /// All actors not in the vclock have an implied count of 0
-    pub fn get(&self, actor: &A) -> Counter {
+    pub fn get(&self, actor: &A) -> u64 {
         self.dots.get(actor)
             .map(|counter| *counter)
             .unwrap_or(0)
@@ -242,38 +264,49 @@ impl<A: Actor> VClock<A> {
     }
 }
 
-impl<A: Actor> std::iter::IntoIterator for VClock<A> {
-    type Item = (A, u64);
-    type IntoIter = btree_map::IntoIter<A, u64>;
-    
-    /// Consumes the vclock and returns an iterator over dots in the clock
-    fn into_iter(self) -> btree_map::IntoIter<A, u64> {
-        self.dots.into_iter()
+/// Generated from calls to VClock::into_iter()
+pub struct IntoIter<A: Actor> {
+    btree_iter: btree_map::IntoIter<A, u64>
+}
+
+impl<A: Actor> std::iter::Iterator for IntoIter<A> {
+    type Item = Dot<A>;
+
+    fn next(&mut self) -> Option<Dot<A>> {
+        self.btree_iter
+            .next()
+            .map(|(actor, counter)| Dot::new(actor, counter))
     }
 }
 
-impl<A: Actor> std::iter::FromIterator<(A, u64)> for VClock<A> {
-    fn from_iter<I: IntoIterator<Item=(A, u64)>>(iter: I) -> Self {
-        let mut clock = Self::new();
+impl<A: Actor> std::iter::IntoIterator for VClock<A> {
+    type Item = Dot<A>;
+    type IntoIter = IntoIter<A>;
+    
+    /// Consumes the vclock and returns an iterator over dots in the clock
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter {
+            btree_iter: self.dots.into_iter()
+        }
+    }
+}
 
-        for (actor, counter) in iter {
-            let _ = clock.witness(actor, counter);
+impl<A: Actor> std::iter::FromIterator<Dot<A>> for VClock<A> {
+    fn from_iter<I: IntoIterator<Item=Dot<A>>>(iter: I) -> Self {
+        let mut clock = VClock::new();
+
+        for dot in iter {
+            clock.apply(&dot);
         }
 
         clock
     }
 }
 
-impl<A: Actor> From<Vec<(A, u64)>> for VClock<A> {
-    fn from(vec: Vec<(A, u64)>) -> Self {
-        vec.into_iter().collect()
-    }
-}
-
 impl<A: Actor> From<Dot<A>> for VClock<A> {
     fn from(dot: Dot<A>) -> Self {
         let mut clock = VClock::new();
-        clock.witness(dot.actor, dot.counter);
+        clock.apply(&dot);
         clock
     }
 }

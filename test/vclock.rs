@@ -5,8 +5,7 @@ use crdts::*;
 fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
     let mut v = VClock::new();
     for actor in prims {
-        let op = v.inc(actor);
-        v.apply(&op);
+        v.apply_inc(actor);
     }
     v
 }
@@ -21,10 +20,12 @@ quickcheck! {
         // TODO: is there a better way to check comutativity of dots?
         let reverse: VClock<u8> = dots.clone()
             .into_iter()
+            .map(|(a, c)| Dot::new(a, c))
             .rev()
             .collect();
         let forward: VClock<u8> = dots
             .into_iter()
+            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         reverse == forward
@@ -33,11 +34,13 @@ quickcheck! {
     fn prop_from_iter_dots_should_be_idempotent(dots: Vec<(u8, u64)>) -> bool {
         let single: VClock<u8> = dots.clone()
             .into_iter()
+            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         let double: VClock<u8> = dots.clone()
             .into_iter()
             .chain(dots.into_iter())
+            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         single == double
@@ -68,32 +71,45 @@ quickcheck! {
 
 #[test]
 fn test_subtract() {
-    let mut a: VClock<u8> = vec![(1, 4), (2, 3), (5, 9)].into_iter().collect();
-    let b: VClock<u8> = vec![(1, 5), (2, 3), (5, 8)].into_iter().collect();
-    let expected: VClock<u8> = vec![(5, 9)].into_iter().collect();
+    let mut a: VClock<u8> = vec![Dot::new(1, 4), Dot::new(2, 3), Dot::new(5, 9)]
+        .into_iter()
+        .collect();
+    let b: VClock<u8> = vec![Dot::new(1, 5), Dot::new(2, 3), Dot::new(5, 8)]
+        .into_iter()
+        .collect();
+    let expected: VClock<u8> = vec![Dot::new(5, 9)]
+        .into_iter()
+        .collect();
 
     a.subtract(&b);
-
     assert_eq!(a, expected);
 }
 
 #[test]
 fn test_merge() {
-    let mut a: VClock<u8> = vec![(1, 1), (2, 2), (4, 4)].into_iter().collect();
-    let b: VClock<u8> = vec![(3, 3), (4, 3)].into_iter().collect();
+    let mut a: VClock<u8> = vec![Dot::new(1, 1), Dot::new(4, 4)]
+        .into_iter()
+        .collect();
+    let b: VClock<u8> = vec![Dot::new(3, 3), Dot::new(4, 3)]
+        .into_iter()
+        .collect();
+
     a.merge(&b);
     
-    let c: VClock<u8> = vec![(1, 1), (2, 2), (3, 3), (4, 4)].into_iter().collect();
-    assert_eq!(a, c);
+    let expected: VClock<u8> = vec![Dot::new(1, 1), Dot::new(3, 3), Dot::new(4, 4)]
+        .into_iter()
+        .collect();
+
+    assert_eq!(a, expected);
 }
 
 #[test]
 fn test_merge_less_left() {
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.witness(5, 5);
+    a.apply_dot(Dot::new(5, 5));
 
-    b.witness(6, 6);
-    b.witness(7, 7);
+    b.apply_dot(Dot::new(6, 6));
+    b.apply_dot(Dot::new(7, 7));
 
     a.merge(&b);
     assert_eq!(a.get(&5), 5);
@@ -104,10 +120,10 @@ fn test_merge_less_left() {
 #[test]
 fn test_merge_less_right() {
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.witness(6, 6);
-    a.witness(7, 7);
+    a.apply_dot(Dot::new(6, 6));
+    a.apply_dot(Dot::new(7, 7));
 
-    b.witness(5, 5);
+    b.apply_dot(Dot::new(5, 5));
 
     a.merge(&b);
     assert_eq!(a.get(&5), 5);
@@ -118,11 +134,11 @@ fn test_merge_less_right() {
 #[test]
 fn test_merge_same_id() {
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.witness(1, 1);
-    a.witness(2, 1);
+    a.apply_dot(Dot::new(1, 1));
+    a.apply_dot(Dot::new(2, 1));
 
-    b.witness(1, 1);
-    b.witness(3, 1);
+    b.apply_dot(Dot::new(1, 1));
+    b.apply_dot(Dot::new(3, 1));
 
     a.merge(&b);
     assert_eq!(a.get(&1), 1);
@@ -135,10 +151,10 @@ fn test_vclock_ordering() {
     assert_eq!(VClock::<i8>::new(), VClock::new());
 
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.witness("A".to_string(), 1);
-    a.witness("A".to_string(), 2);
-    a.witness("A".to_string(), 0);
-    b.witness("A".to_string(), 1);
+    a.apply_dot(Dot::new("A".to_string(), 1));
+    a.apply_dot(Dot::new("A".to_string(), 2));
+    a.apply_dot(Dot::new("A".to_string(), 0));
+    b.apply_dot(Dot::new("A".to_string(), 1));
 
     // a {A:2}
     // b {A:1}
@@ -147,7 +163,7 @@ fn test_vclock_ordering() {
     assert!(b < a);
     assert!(a != b);
 
-    b.witness("A".to_string(), 3);
+    b.apply_dot(Dot::new("A".to_string(), 3));
     // a {A:2}
     // b {A:3}
     // expect: b dominates
@@ -155,7 +171,7 @@ fn test_vclock_ordering() {
     assert!(a < b);
     assert!(a != b);
 
-    a.witness("B".to_string(), 1);
+    a.apply_dot(Dot::new("B".to_string(), 1));
     // a {A:2, B:1}
     // b {A:3}
     // expect: concurrent
@@ -163,7 +179,7 @@ fn test_vclock_ordering() {
     assert!(!(a > b));
     assert!(!(b > a));
 
-    a.witness("A".to_string(), 3);
+    a.apply_dot(Dot::new("A".to_string(), 3));
     // a {A:3, B:1}
     // b {A:3}
     // expect: a dominates
@@ -171,7 +187,7 @@ fn test_vclock_ordering() {
     assert!(b < a);
     assert!(a != b);
 
-    b.witness("B".to_string(), 2);
+    b.apply_dot(Dot::new("B".to_string(), 2));
     // a {A:3, B:1}
     // b {A:3, B:2}
     // expect: b dominates
@@ -179,7 +195,7 @@ fn test_vclock_ordering() {
     assert!(a < b);
     assert!(a != b);
 
-    a.witness("B".to_string(), 2);
+    a.apply_dot(Dot::new("B".to_string(), 2));
     // a {A:3, B:2}
     // b {A:3, B:2}
     // expect: equal

@@ -29,55 +29,10 @@ impl<A, T> Val<A> for T where
 /// Reset-remove means that if one replica removes an entry while another
 /// actor concurrently edits that entry, once we sync these two maps, we
 /// will see that the entry is still in the map but all edits seen by the
-/// removing actor will be gone. To understand this more clearly see the
-/// following example:
+/// removing actor will be gone.
 ///
-/// ``` rust
-/// use crdts::{Map, Orswot, CvRDT, CmRDT};
-///
-/// type Actor = u64;
-/// type Friend = String;
-///
-/// let mut friends: Map<Friend, Orswot<Friend, Actor>, Actor> = Map::new();
-/// let a1 = 10837103590u64; // initial actors id
-///
-/// let op = friends.update(
-///     "alice",
-///     friends.get(&"alice".to_string()).derive_add_ctx(a1),
-///     |set, ctx| set.add("bob", ctx)
-/// );
-/// friends.apply(&op);
-///
-/// let mut friends_replica = friends.clone();
-/// let a2 = 8947212u64; // the replica's actor id
-///
-/// // now the two maps diverge. the original map will remove "alice" from the map
-/// // while the replica map will update the "alice" friend set to include "clyde".
-///
-/// let rm_op = friends.rm("alice", friends.get(&"alice".to_string()).derive_rm_ctx());
-/// friends.apply(&rm_op);
-///
-/// let replica_op = friends_replica.update(
-///     "alice",
-///     friends_replica.get(&"alice".into()).derive_add_ctx(a2),
-///     |set, ctx| set.add("clyde", ctx)
-/// );
-/// friends_replica.apply(&replica_op);
-///
-/// assert_eq!(friends.get(&"alice".into()).val, None);
-/// assert_eq!(
-///     friends_replica.get(&"alice".into()).val.map(|set| set.value().val),
-///     Some(vec!["bob".to_string(), "clyde".to_string()].into_iter().collect())
-/// );
-///
-/// // On merge, we should see "alice" in the map but her friend set should only have "clyde".
-///
-/// friends.merge(&friends_replica);
-///
-/// let alice_friends = friends.get(&"alice".into()).val
-///     .map(|set| set.value().val);
-/// assert_eq!(alice_friends, Some(vec!["clyde".into()].into_iter().collect()));
-/// ```
+/// See examples/reset_remove.rs for an example of reset-remove semantics
+/// in action.
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Map<K: Key, V: Val<A>, A: Actor> {
@@ -166,8 +121,8 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
             Op::Rm { clock, key } => {
                 self.apply_rm(key, &clock);
             },
-            Op::Up { dot: Dot { actor, counter }, key, op } => {
-                if self.clock.get(&actor) >= counter {
+            Op::Up { dot, key, op } => {
+                if self.clock.get(&dot.actor) >= dot.counter {
                     // we've seen this op already
                     return;
                 }
@@ -178,11 +133,11 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
                         val: V::default()
                     });
 
-                entry.clock.witness(actor.clone(), counter);
+                entry.clock.apply(&dot);
                 entry.val.apply(&op);
                 self.entries.insert(key.clone(), entry);
 
-                self.clock.witness(actor, counter);
+                self.clock.apply(&dot);
                 self.apply_deferred();
             }
         }
