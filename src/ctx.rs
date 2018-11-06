@@ -42,10 +42,7 @@ impl<V, A: Actor> ReadCtx<V, A> {
         let mut clock = self.add_clock.clone();
         let dot = clock.inc(actor);
         clock.apply(&dot);
-        AddCtx {
-            clock: clock,
-            dot: dot
-        }
+        AddCtx { clock, dot }
     }
 
     /// Derives a RmCtx from a ReadCtx

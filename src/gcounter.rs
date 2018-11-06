@@ -15,22 +15,23 @@ use vclock::{VClock, Actor, Dot};
 /// let op_b = b.inc("B".to_string());
 /// a.apply(&op_a1);
 /// b.apply(&op_b);
-/// assert_eq!(a.value(), b.value());
+/// assert_eq!(a.read(), b.read());
 /// assert!(a == b);
 /// let op_a2 = a.inc("A".to_string());
 /// a.inc("A".to_string());
 /// a.apply(&op_a2);
-/// assert!(a.value() > b.value());
+/// assert!(a.read() > b.read());
 /// ```
-#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct GCounter<A: Actor> {
     inner: VClock<A>,
 }
 
+impl<A: Actor> Eq for GCounter<A> {}
+
 impl<A: Actor> PartialEq for GCounter<A> {
     fn eq(&self, other: &GCounter<A>) -> bool {
-        let (c, oc) = (self.value(), other.value());
-        c == oc
+        self.read() == other.read()
     }
 }
 
@@ -54,13 +55,18 @@ impl<A: Actor> GCounter<A> {
         GCounter { inner: VClock::new() }
     }
 
-    /// Increment the counter.
+    /// Generate Op to increment the counter.
     pub fn inc(&self, actor: A) -> Dot<A> {
         self.inner.inc(actor)
     }
 
+    /// Increment the counter.
+    pub fn apply_inc(&mut self, actor: A) {
+        self.inner.apply_inc(actor)
+    }
+
     /// Returns the current sum of this counter.
-    pub fn value(&self) -> u64 {
+    pub fn read(&self) -> u64 {
         self.inner.iter()
             .map(|dot| dot.counter)
             .sum()
