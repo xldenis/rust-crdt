@@ -34,7 +34,7 @@ impl<T: Debug + Clone + Send + Serialize + DeserializeOwned> Val for T {}
 /// assert_eq!(read_ctx.val, vec!["bob".to_string(), "alice".to_string()]);
 /// assert_eq!(
 ///     read_ctx.add_clock,
-///     vec![(123, 1), (111, 1)]
+///     vec![Dot::new(123, 1), Dot::new(111, 1)]
 ///       .into_iter()
 ///       .collect()
 /// );

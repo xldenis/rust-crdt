@@ -38,14 +38,14 @@ pub struct Orswot<M: Member, A: Actor> {
 pub enum Op<M: Member, A: Actor> {
     /// Add a member to the set
     Add {
-        /// Add witnessing dot
+        /// witnessing dot
         dot: Dot<A>,
         /// Member to add
         member: M
     },
     /// Remove a member from the set
     Rm {
-        /// Remove witnessing clock
+        /// witnessing clock
         clock: VClock<A>,
         /// Member to remove
         member: M
@@ -224,7 +224,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     }
 
     /// Retrieve the current members.
-    pub fn value(&self) -> ReadCtx<HashSet<M>, A> {
+    pub fn read(&self) -> ReadCtx<HashSet<M>, A> {
         ReadCtx {
             add_clock: self.clock.clone(),
             rm_clock: self.clock.clone(),
@@ -258,7 +258,7 @@ mod tests {
     fn ensure_deferred_merges() {
         let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
 
-        let b_read_ctx = b.value();
+        let b_read_ctx = b.read();
         let b_op1 = b.add("element 1", b_read_ctx.derive_add_ctx(5));
         b.apply(&b_op1);
 
@@ -266,7 +266,7 @@ mod tests {
         let rm_op1 = b.remove("element 1", RmCtx { clock: Dot { actor: 5, counter: 4 }.into() });
         b.apply(&rm_op1);
         
-        let a_read_ctx = a.value();
+        let a_read_ctx = a.read();
         let a_op = a.add("element 4", a_read_ctx.derive_add_ctx(6));
         a.apply(&a_op);
         
@@ -290,13 +290,13 @@ mod tests {
         let mut c = a.clone();
 
         // add element 5 from witness 1
-        let op = a.add(5, a.value().derive_add_ctx(1));
+        let op = a.add(5, a.read().derive_add_ctx(1));
         a.apply(&op);
 
         // on another clock, remove 5 with an advanced clock for witnesses 1 and 4
         let mut vc = VClock::new();
-        vc.witness(1, 3);
-        vc.witness(4, 8);
+        vc.apply_dot(Dot::new(1, 3));
+        vc.apply_dot(Dot::new(4, 8));
 
         // remove from b (has not yet seen add for 5) with advanced ctx
         let rm_op = b.remove(5, RmCtx { clock: vc });
@@ -311,7 +311,7 @@ mod tests {
         // an inferior member, ensure that the member is no longer visible and
         // the deferred set still contains this info
         a.merge(&c);
-        assert!(a.value().val.is_empty());
+        assert!(a.read().val.is_empty());
     }
 
     // port from riak_dt
@@ -321,7 +321,7 @@ mod tests {
     fn test_present_but_removed() {
         let mut a = Orswot::<u8, String>::new();
         let mut b = Orswot::<u8, String>::new();
-        let a_add_ctx = a.value()
+        let a_add_ctx = a.read()
             .derive_add_ctx("A".to_string());
         let a_op = a.add(0, a_add_ctx);
         a.apply(&a_op);
@@ -332,7 +332,7 @@ mod tests {
         a.apply(&rm_op);
         assert_eq!(a.deferred.len(), 0);
 
-        let b_add_ctx = b.value()
+        let b_add_ctx = b.read()
             .derive_add_ctx("B".to_string());
         let b_op = b.add(0, b_add_ctx);
         b.apply(&b_op);
@@ -350,6 +350,6 @@ mod tests {
         a.merge(&b);
         a.merge(&c);
         println!("{:#?}", a);
-        assert!(a.value().val.is_empty());
+        assert!(a.read().val.is_empty());
     }
 }
