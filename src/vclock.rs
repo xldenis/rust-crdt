@@ -22,8 +22,8 @@ use std::hash::Hash;
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Hash + Send + Debug {}
-impl<A: Ord + Clone + Hash + Send + Debug> Actor for A {}
+pub trait Actor: Ord + Clone + Hash + Debug {}
+impl<A: Ord + Clone + Hash + Debug> Actor for A {}
 
 
 /// Dot is a version marker for a single actor

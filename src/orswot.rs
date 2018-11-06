@@ -13,8 +13,8 @@ use vclock::{VClock, Dot, Actor};
 use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Trait bound alias for members in a set
-pub trait Member: Debug + Clone + Hash + Eq + Send {}
-impl<T: Debug + Clone + Hash + Eq + Send> Member for T {}
+pub trait Member: Debug + Clone + Hash + Eq {}
+impl<T: Debug + Clone + Hash + Eq> Member for T {}
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.

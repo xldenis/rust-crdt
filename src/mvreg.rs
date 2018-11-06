@@ -5,8 +5,8 @@ use ctx::{ReadCtx, AddCtx};
 use traits::{Causal, CmRDT, CvRDT};
 
 /// A Trait alias for the possible values MVReg's may hold
-pub trait Val: Debug + Clone + Send {}
-impl<T: Debug + Clone + Send> Val for T {}
+pub trait Val: Debug + Clone {}
+impl<T: Debug + Clone> Val for T {}
 
 /// MVReg (Multi-Value Register)
 /// On concurrent writes, we will keep all values for which

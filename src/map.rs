@@ -6,15 +6,15 @@ use vclock::{Dot, VClock, Actor};
 use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Key Trait alias to reduce redundancy in type decl.
-pub trait Key: Debug + Ord + Clone + Send {}
-impl<T: Debug + Ord + Clone + Send> Key for T {}
+pub trait Key: Debug + Ord + Clone {}
+impl<T: Debug + Ord + Clone> Key for T {}
 
 /// Val Trait alias to reduce redundancy in type decl.
-pub trait Val<A: Actor>: Debug + Default + Clone + Send + Causal<A> + CmRDT + CvRDT {}
+pub trait Val<A: Actor>: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT {}
 
 impl<A, T> Val<A> for T where
     A: Actor,
-    T: Debug + Default + Clone + Send + Causal<A> + CmRDT + CvRDT
+    T: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT
 {}
 
 /// Map CRDT - Supports Composition of CRDT's with reset-remove semantics.

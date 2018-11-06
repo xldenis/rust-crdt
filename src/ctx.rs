@@ -1,4 +1,3 @@
-use serde::{Serialize, de::DeserializeOwned};
 use vclock::{Actor, VClock, Dot};
 use traits::CmRDT;
 
@@ -36,7 +35,7 @@ pub struct RmCtx<A: Actor> {
     pub clock: VClock<A>
 }
 
-impl<V: Serialize + DeserializeOwned, A: Actor> ReadCtx<V, A> {
+impl<V, A: Actor> ReadCtx<V, A> {
 
     /// Derives an AddCtx for a given actor from a ReadCtx
     pub fn derive_add_ctx(&self, actor: A) -> AddCtx<A> {
