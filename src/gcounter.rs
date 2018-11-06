@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use traits::{CvRDT, CmRDT};
 use vclock::{VClock, Actor, Dot};
 
@@ -21,11 +20,10 @@ use vclock::{VClock, Actor, Dot};
 /// let op_a2 = a.inc("A".to_string());
 /// a.inc("A".to_string());
 /// a.apply(&op_a2);
-/// assert!(a > b);
+/// assert!(a.value() > b.value());
 /// ```
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct GCounter<A> {
+pub struct GCounter<A: Actor> {
     inner: VClock<A>,
 }
 

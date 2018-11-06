@@ -34,7 +34,7 @@ pub trait CmRDT {
     /// Applying ops in any of the valid orders will converge to the same CRDT state
     ///
     /// Op's must be idempotent, meaning any Op may be applied more than once.
-    type Op: Debug + Clone + Send + Serialize + DeserializeOwned;
+    type Op: Debug + Clone + Send;
 
     /// Apply an Op to the CRDT
     fn apply(&mut self, op: &Self::Op);

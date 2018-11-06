@@ -1,27 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
 use traits::{Causal, CvRDT, CmRDT};
 use vclock::{Dot, VClock, Actor};
 use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Key Trait alias to reduce redundancy in type decl.
-pub trait Key: Debug + Ord + Clone + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Ord + Clone + Send + Serialize + DeserializeOwned> Key for T {}
+pub trait Key: Debug + Ord + Clone + Send {}
+impl<T: Debug + Ord + Clone + Send> Key for T {}
 
 /// Val Trait alias to reduce redundancy in type decl.
-pub trait Val<A: Actor>
-    : Debug + Default + Clone + Send + Serialize + DeserializeOwned
-    + Causal<A> + CmRDT + CvRDT
-{}
+pub trait Val<A: Actor>: Debug + Default + Clone + Send + Causal<A> + CmRDT + CvRDT {}
 
 impl<A, T> Val<A> for T where
     A: Actor,
-    T: Debug + Default + Clone + Send + Serialize + DeserializeOwned
-    + Causal<A> + CmRDT + CvRDT
+    T: Debug + Default + Clone + Send + Causal<A> + CmRDT + CvRDT
 {}
 
 /// Map CRDT - Supports Composition of CRDT's with reset-remove semantics.
@@ -33,7 +26,6 @@ impl<A, T> Val<A> for T where
 ///
 /// See examples/reset_remove.rs for an example of reset-remove semantics
 /// in action.
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Map<K: Key, V: Val<A>, A: Actor> {
     // This clock stores the current version of the Map, it should
@@ -43,7 +35,6 @@ pub struct Map<K: Key, V: Val<A>, A: Actor> {
     deferred: HashMap<VClock<A>, BTreeSet<K>>
 }
 
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry<V: Val<A>, A: Actor> {
     // The entry clock tells us which actors edited this entry.
@@ -54,7 +45,6 @@ struct Entry<V: Val<A>, A: Actor> {
 }
 
 /// Operations which can be applied to the Map CRDT
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<K: Key, V: Val<A>, A: Actor> {
     /// No change to the CRDT

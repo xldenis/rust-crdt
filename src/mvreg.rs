@@ -1,6 +1,3 @@
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-
 use std::fmt::{self, Debug, Display};
 
 use vclock::{VClock, Actor};
@@ -8,8 +5,8 @@ use ctx::{ReadCtx, AddCtx};
 use traits::{Causal, CmRDT, CvRDT};
 
 /// A Trait alias for the possible values MVReg's may hold
-pub trait Val: Debug + Clone + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Clone + Send + Serialize + DeserializeOwned> Val for T {}
+pub trait Val: Debug + Clone + Send {}
+impl<T: Debug + Clone + Send> Val for T {}
 
 /// MVReg (Multi-Value Register)
 /// On concurrent writes, we will keep all values for which
@@ -39,14 +36,12 @@ impl<T: Debug + Clone + Send + Serialize + DeserializeOwned> Val for T {}
 ///       .collect()
 /// );
 /// ```
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MVReg<V: Val, A: Actor> {
     vals: Vec<(VClock<A>, V)>
 }
 
 /// Defines the set of operations over the MVReg
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<V: Val, A: Actor> {
     /// Put a value

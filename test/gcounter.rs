@@ -15,5 +15,5 @@ fn test_basic() {
     let a_op2 = a.inc("A".to_string());
     a.apply(&a_op2);
 
-    assert!(a > b);
+    assert!(a.value() > b.value());
 }

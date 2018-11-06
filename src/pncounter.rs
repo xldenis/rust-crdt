@@ -28,7 +28,6 @@ use traits::{CvRDT, CmRDT};
 ///
 /// assert_eq!(a.value(), 2);
 /// ```
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct PNCounter<A: Actor> {
     p: GCounter<A>,
@@ -46,7 +45,6 @@ pub enum Dir {
 
 /// An Op which is produced through from mutating the counter
 /// Ship these ops to other replicas to have them sync up.
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Op<A: Actor> {
     /// The witnessing dot for this op

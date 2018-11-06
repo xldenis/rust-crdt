@@ -22,8 +22,8 @@ use std::hash::Hash;
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug {}
-impl<A: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug> Actor for A {}
+pub trait Actor: Ord + Clone + Hash + Send + Debug {}
+impl<A: Ord + Clone + Hash + Send + Debug> Actor for A {}
 
 
 /// Dot is a version marker for a single actor
@@ -53,7 +53,6 @@ impl<A: Actor> Dot<A> {
 /// It can tell you if something causally descends something else,
 /// or if different replicas are "concurrent" (were mutated in
 /// isolation, and need to be resolved externally).
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VClock<A: Actor> {
     /// dots is the mapping from actors to their associated counters

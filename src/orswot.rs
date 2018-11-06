@@ -8,20 +8,16 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
 use traits::{CvRDT, CmRDT, Causal};
 use vclock::{VClock, Dot, Actor};
 use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Trait bound alias for members in a set
-pub trait Member: Debug + Clone + Hash + Eq + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Clone + Hash + Eq + Send + Serialize + DeserializeOwned> Member for T {}
+pub trait Member: Debug + Clone + Hash + Eq + Send {}
+impl<T: Debug + Clone + Hash + Eq + Send> Member for T {}
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Orswot<M: Member, A: Actor> {
     clock: VClock<A>,
@@ -33,7 +29,6 @@ pub struct Orswot<M: Member, A: Actor> {
 /// they were produced to guarantee convergence.
 ///
 /// Op's are idempotent, that is, applying an Op twice will not have an effect
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<M: Member, A: Actor> {
     /// Add a member to the set
