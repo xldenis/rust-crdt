@@ -27,14 +27,15 @@ impl<A: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug> Actor 
 
 
 /// Dot is a version marker for a single actor
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Dot<A: Actor> {
+pub struct Dot<A> {
     /// The actor identifier
     pub actor: A,
     /// The current version of this actor
     pub counter: u64
 }
+
+
 
 impl<A: Actor> Dot<A> {
     /// Build a Dot from an actor and counter
@@ -250,13 +251,15 @@ impl<A: Actor> VClock<A> {
     }
 
     /// Returns an iterator over the dots in this vclock
-    pub fn iter(&self) -> impl Iterator<Item=(&A, &u64)> {
-        self.dots.iter()
+    pub fn iter(&self) -> impl Iterator<Item=Dot<&A>> {
+        self.dots
+            .iter()
+            .map(|(a, c)| Dot { actor: a, counter: *c })
     }
 
     /// Forget actors who appear in the given VClock with descendent dots
     pub fn subtract(&mut self, other: &VClock<A>) {
-        for (actor, counter) in other.iter() {
+        for (actor, counter) in other.dots.iter() {
             if counter >= &self.get(&actor) {
                 self.dots.remove(&actor);
             }

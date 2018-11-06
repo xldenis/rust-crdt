@@ -9,7 +9,9 @@ use vclock::{VClock, Actor, Dot};
 /// ```
 /// use crdts::{GCounter, CmRDT};
 /// 
-/// let (mut a, mut b) = (GCounter::new(), GCounter::new());
+/// let mut a = GCounter::new();
+/// let mut b = GCounter::new();
+///
 /// let op_a1 = a.inc("A".to_string());
 /// let op_b = b.inc("B".to_string());
 /// a.apply(&op_a1);
@@ -23,21 +25,8 @@ use vclock::{VClock, Actor, Dot};
 /// ```
 #[serde(bound(deserialize = ""))]
 #[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct GCounter<A: Actor> {
+pub struct GCounter<A> {
     inner: VClock<A>,
-}
-
-impl<A: Actor> Ord for GCounter<A> {
-    fn cmp(&self, other: &GCounter<A>) -> Ordering {
-        let (c, oc) = (self.value(), other.value());
-        c.cmp(&oc)
-    }
-}
-
-impl<A: Actor> PartialOrd for GCounter<A> {
-    fn partial_cmp(&self, other: &GCounter<A>) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
 impl<A: Actor> PartialEq for GCounter<A> {
@@ -74,6 +63,8 @@ impl<A: Actor> GCounter<A> {
 
     /// Returns the current sum of this counter.
     pub fn value(&self) -> u64 {
-        self.inner.dots.values().fold(0, |acc, count| acc + count)
+        self.inner.iter()
+            .map(|dot| dot.counter)
+            .sum()
     }
 }
