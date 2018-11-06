@@ -63,9 +63,9 @@ impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
-        } else if other.dots.iter().all(|(w, c)| &self.get(w) >= c) {
+        } else if other.dots.iter().all(|(w, c)| self.get(w) >= *c) {
             Some(Ordering::Greater)
-        } else if self.dots.iter().all(|(w, c)| &other.get(w) >= c) {
+        } else if self.dots.iter().all(|(w, c)| other.get(w) >= *c) {
             Some(Ordering::Less)
         } else {
             None
@@ -204,7 +204,7 @@ impl<A: Actor> VClock<A> {
     /// ```
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
-        Dot { actor: actor, counter: next }
+        Dot { actor, counter: next }
     }
 
     /// True if two vector clocks have diverged.
@@ -246,7 +246,7 @@ impl<A: Actor> VClock<A> {
                 dots.insert(actor.clone(), *counter);
             }
         }
-        VClock { dots: dots }
+        VClock { dots }
     }
 
     /// Returns an iterator over the dots in this vclock

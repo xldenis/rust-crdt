@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 
 use vclock::{VClock, Actor};
@@ -157,7 +158,10 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
                     return;
                 }
                 // first filter out all values that are dominated by the Op clock
-                self.vals.retain(|(val_clock, _)| !(val_clock <= &clock));
+                self.vals.retain(|(val_clock, _)| match val_clock.partial_cmp(&clock) {
+                    None | Some(Ordering::Greater) => true,
+                    _ => false
+                });
 
                 // TAI: in the case were the Op has a context that already was present,
                 //      the above line would remove that value, the next lines would

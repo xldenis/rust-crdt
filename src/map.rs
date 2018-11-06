@@ -237,7 +237,7 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         let add_clock = self.clock.clone();
         let entry_opt = self.entries.get(&key);
         ReadCtx {
-            add_clock: add_clock,
+            add_clock,
             rm_clock: entry_opt
                 .map(|map_entry| map_entry.clock.clone())
                 .unwrap_or_else(|| VClock::new()),
