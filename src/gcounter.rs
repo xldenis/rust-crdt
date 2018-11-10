@@ -1,3 +1,4 @@
+use num_bigint::BigUint;
 use traits::{CvRDT, CmRDT};
 use vclock::{VClock, Actor, Dot};
 
@@ -7,7 +8,7 @@ use vclock::{VClock, Actor, Dot};
 ///
 /// ```
 /// use crdts::{GCounter, CmRDT};
-/// 
+///
 /// let mut a = GCounter::new();
 /// let mut b = GCounter::new();
 ///
@@ -47,9 +48,11 @@ impl<A: Actor> CvRDT for GCounter<A> {
 }
 
 impl<A: Actor> GCounter<A> {
-    /// Produces a new `GCounter`.
+    /// Produce a new `GCounter`.
     pub fn new() -> Self {
-        GCounter { inner: VClock::new() }
+        GCounter {
+            inner: VClock::new(),
+        }
     }
 
     /// Generate Op to increment the counter.
@@ -62,8 +65,8 @@ impl<A: Actor> GCounter<A> {
         self.inner.apply_inc(actor)
     }
 
-    /// Returns the current sum of this counter.
-    pub fn read(&self) -> u64 {
+    /// Return the current sum of this counter.
+    pub fn read(&self) -> BigUint {
         self.inner.iter()
             .map(|dot| dot.counter)
             .sum()

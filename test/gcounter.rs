@@ -1,4 +1,5 @@
-extern crate crdts;
+extern crate num_bigint;
+use self::num_bigint::BigUint;
 use crdts::GCounter;
 
 #[test]
@@ -13,5 +14,5 @@ fn test_basic() {
 
     a.apply_inc("A".to_string());
 
-    assert_eq!(a.read(), b.read() + 1);
+    assert_eq!(a.read(), b.read() + BigUint::from(1u8));
 }
