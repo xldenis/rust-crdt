@@ -141,7 +141,7 @@ impl<A: Actor> CvRDT for VClock<A> {
 
 impl<A: Actor> VClock<A> {
     /// Returns a new `VClock` instance.
-    pub fn new() -> VClock<A> {
+    pub fn new() -> Self {
         VClock { dots: BTreeMap::new() }
     }
 

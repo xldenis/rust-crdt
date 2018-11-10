@@ -51,7 +51,7 @@ impl<A: Actor> CvRDT for GCounter<A> {
 
 impl<A: Actor> GCounter<A> {
     /// Produces a new `GCounter`.
-    pub fn new() -> GCounter<A> {
+    pub fn new() -> Self {
         GCounter { inner: VClock::new() }
     }
 

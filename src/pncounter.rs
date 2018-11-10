@@ -73,7 +73,7 @@ impl<A: Actor> CvRDT for PNCounter<A> {
 
 impl<A: Actor> PNCounter<A> {
     /// Produces a new `PNCounter`.
-    pub fn new() -> PNCounter<A> {
+    pub fn new() -> Self {
         PNCounter {
             p: GCounter::new(),
             n: GCounter::new(),

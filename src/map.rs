@@ -215,7 +215,7 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
 
 impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     /// Constructs an empty Map
-    pub fn new() -> Map<K, V, A> {
+    pub fn new() -> Self {
         Map {
             clock: VClock::new(),
             entries: BTreeMap::new(),
