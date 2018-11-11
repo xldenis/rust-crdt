@@ -35,8 +35,6 @@ pub struct Dot<A> {
     pub counter: u64
 }
 
-
-
 impl<A: Actor> Dot<A> {
     /// Build a Dot from an actor and counter
     pub fn new(actor: A, counter: u64) -> Self {
@@ -264,8 +262,8 @@ impl<A: Actor> VClock<A> {
 
     /// Forget actors who appear in the given VClock with descendent dots
     pub fn subtract(&mut self, other: &VClock<A>) {
-        for (actor, counter) in other.dots.iter() {
-            if *counter >= self.get(&actor) {
+        for Dot { actor, counter } in other.iter() {
+            if counter >= self.get(&actor) {
                 self.dots.remove(&actor);
             }
         }

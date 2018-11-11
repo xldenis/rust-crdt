@@ -66,7 +66,7 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
                 }
                 {
                     let mut member_vclock = self.entries.entry(member)
-                        .or_insert_with(VClock::new);
+                        .or_default();
 
                     member_vclock.apply(&dot);
                 }
