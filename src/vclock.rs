@@ -59,6 +59,12 @@ pub struct VClock<A: Actor> {
     pub dots: BTreeMap<A, u64>,
 }
 
+impl<A: Actor> Default for VClock<A> {
+    fn default() -> Self {
+        VClock::new()
+    }
+}
+
 impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
@@ -160,7 +166,7 @@ impl<A: Actor> VClock<A> {
     /// assert_eq!(v.get(&"A".to_string()), 2);
     /// ```
     pub fn apply_dot(&mut self, dot: Dot<A>) {
-        if !(self.get(&dot.actor) >= dot.counter) {
+        if self.get(&dot.actor) < dot.counter {
             self.dots.insert(dot.actor, dot.counter);
         }
     }
@@ -227,7 +233,7 @@ impl<A: Actor> VClock<A> {
     /// All actors not in the vclock have an implied count of 0
     pub fn get(&self, actor: &A) -> u64 {
         self.dots.get(actor)
-            .map(|counter| *counter)
+            .cloned()
             .unwrap_or(0)
     }
 
@@ -259,7 +265,7 @@ impl<A: Actor> VClock<A> {
     /// Forget actors who appear in the given VClock with descendent dots
     pub fn subtract(&mut self, other: &VClock<A>) {
         for (actor, counter) in other.dots.iter() {
-            if counter >= &self.get(&actor) {
+            if *counter >= self.get(&actor) {
                 self.dots.remove(&actor);
             }
         }

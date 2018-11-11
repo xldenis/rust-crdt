@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::cmp::Ordering;
 
 use traits::{CvRDT, CmRDT, Causal};
 use vclock::{VClock, Dot, Actor};
@@ -65,7 +66,7 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
                 }
                 {
                     let mut member_vclock = self.entries.entry(member)
-                        .or_insert_with(|| VClock::new());
+                        .or_insert_with(VClock::new);
 
                     member_vclock.apply(&dot);
                 }
@@ -135,7 +136,7 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
         // merge deferred removals
         for (clock, deferred) in other.deferred.iter() {
             let mut our_deferred =
-                self.deferred.remove(&clock).unwrap_or(HashSet::new());
+                self.deferred.remove(&clock).unwrap_or_default();
             for e in deferred.iter() {
                 our_deferred.insert(e.clone());
             }
@@ -189,12 +190,15 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     /// Remove a member using a witnessing clock.
     fn apply_remove(&mut self, member: impl Into<M>, clock: &VClock<A>) {
         let member: M = member.into();
-        if !(clock <= &self.clock) {
-            let mut deferred_drops = self.deferred
-                .remove(&clock)
-                .unwrap_or_else(|| HashSet::new());
-            deferred_drops.insert(member.clone());
-            self.deferred.insert(clock.clone(), deferred_drops);
+        match clock.partial_cmp(&self.clock) {
+            None | Some(Ordering::Greater) => {
+                let mut deferred_drops = self.deferred
+                    .remove(&clock)
+                    .unwrap_or_default();
+                deferred_drops.insert(member.clone());
+                self.deferred.insert(clock.clone(), deferred_drops);
+            }
+            _ => {/* we've already seen this remove */}
         }
 
         if let Some(mut existing_clock) = self.entries.remove(&member) {
@@ -213,7 +217,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
             add_clock: self.clock.clone(),
             rm_clock: member_clock_opt
                 .cloned()
-                .unwrap_or_else(|| VClock::new()),
+                .unwrap_or_default(),
             val: exists
         }
     }

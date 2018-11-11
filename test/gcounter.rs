@@ -9,7 +9,7 @@ fn test_basic() {
     b.apply_inc("B".to_string());
 
     assert_eq!(a.read(), b.read());
-    assert_eq!(a, b);
+    assert_ne!(a, b);
 
     a.apply_inc("A".to_string());
 

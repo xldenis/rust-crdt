@@ -16,22 +16,19 @@ use vclock::{VClock, Actor, Dot};
 /// a.apply(&op_a1);
 /// b.apply(&op_b);
 /// assert_eq!(a.read(), b.read());
-/// assert!(a == b);
 /// let op_a2 = a.inc("A".to_string());
 /// a.inc("A".to_string());
 /// a.apply(&op_a2);
 /// assert!(a.read() > b.read());
 /// ```
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct GCounter<A: Actor> {
     inner: VClock<A>,
 }
 
-impl<A: Actor> Eq for GCounter<A> {}
-
-impl<A: Actor> PartialEq for GCounter<A> {
-    fn eq(&self, other: &GCounter<A>) -> bool {
-        self.read() == other.read()
+impl<A: Actor> Default for GCounter<A> {
+    fn default() -> Self {
+        GCounter::new()
     }
 }
 

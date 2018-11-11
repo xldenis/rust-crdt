@@ -22,7 +22,7 @@ use traits::{CvRDT, CmRDT};
 ///
 /// assert_eq!(a.read(), 2);
 /// ```
-#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct PNCounter<A: Actor> {
     p: GCounter<A>,
     n: GCounter<A>,
@@ -47,9 +47,9 @@ pub struct Op<A: Actor> {
     pub dir: Dir
 }
 
-impl<A: Actor> PartialEq for PNCounter<A> {
-    fn eq(&self, other: &PNCounter<A>) -> bool {
-        self.read() == other.read()
+impl<A: Actor> Default for PNCounter<A> {
+    fn default() -> Self {
+        PNCounter::new()
     }
 }
 
@@ -102,6 +102,6 @@ impl<A: Actor> PNCounter<A> {
 
     /// Returns the current value of this counter (P-N).
     pub fn read(&self) -> i64 {
-        (self.p.read() as i128 - self.n.read() as i128) as i64
+        (i128::from(self.p.read()) - i128::from(self.n.read())) as i64
     }
 }

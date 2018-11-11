@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
+use std::cmp::Ordering;
 
 use traits::{Causal, CvRDT, CmRDT};
 use vclock::{Dot, VClock, Actor};
@@ -223,6 +224,15 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
          }
     }
 
+    /// Returns true if the map has no entries, false otherwise
+    pub fn is_empty(&self) -> ReadCtx<bool, A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: self.entries.is_empty()
+        }
+    }
+
     /// Returns the number of entries in the Map
     pub fn len(&self) -> ReadCtx<usize, A> {
         ReadCtx {
@@ -240,7 +250,7 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
             add_clock,
             rm_clock: entry_opt
                 .map(|map_entry| map_entry.clock.clone())
-                .unwrap_or_else(|| VClock::new()),
+                .unwrap_or_default(),
             val: entry_opt
                 .map(|map_entry| map_entry.val.clone())
         }
@@ -279,17 +289,20 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 
     /// Apply a key removal given a clock.
     fn apply_rm(&mut self, key: K, clock: &VClock<A>) {
-        if !(clock <= &self.clock) {
-            let deferred_set = self.deferred.entry(clock.clone())
-                .or_insert_with(|| BTreeSet::new());
-            deferred_set.insert(key.clone());
+        match clock.partial_cmp(&self.clock) {
+            None | Some(Ordering::Greater) => {
+                let deferred_set = self.deferred.entry(clock.clone())
+                    .or_default();
+                deferred_set.insert(key.clone());
+            },
+            _ => { /* we've seen this remove already */ }
         }
 
         if let Some(mut existing_entry) = self.entries.remove(&key) {
             existing_entry.clock.subtract(&clock);
             if !existing_entry.clock.is_empty() {
                 existing_entry.val.truncate(&clock);
-                self.entries.insert(key.clone(), existing_entry);
+                self.entries.insert(key, existing_entry);
             }
         }
     }

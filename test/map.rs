@@ -49,6 +49,22 @@ fn build_opvec(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> OpVec {
 fn test_new() {
     let m: TestMap = Map::new();
     assert_eq!(m.len().val, 0);
+    assert!(m.is_empty().val);
+}
+
+#[test]
+fn test_is_empty() {
+    let mut m: TestMap = Map::new();
+    let is_empty_read = m.is_empty();
+    assert!(is_empty_read.val);
+
+    let op = m.update(101, is_empty_read.derive_add_ctx(1), |map, ctx| {
+        map.update(110, ctx, |reg, ctx| reg.set(2, ctx))
+    });
+    m.apply(&op);
+
+    let is_empty_ctx = m.is_empty();
+    assert!(!is_empty_ctx.val);
 }
 
 #[test]
