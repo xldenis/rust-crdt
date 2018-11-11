@@ -10,4 +10,3 @@ matrix:
 
 os:
   - linux
-  - osx
