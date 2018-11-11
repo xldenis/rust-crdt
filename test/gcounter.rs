@@ -1,19 +1,17 @@
 extern crate crdts;
-use crdts::{GCounter, CmRDT};
+use crdts::GCounter;
 
 #[test]
 fn test_basic() {
     let mut a = GCounter::new();
     let mut b = GCounter::new();
-    let a_op = a.inc("A".to_string());
-    let b_op = b.inc("B".to_string());
-    a.apply(&a_op);
-    b.apply(&b_op);
-    assert_eq!(a.value(), b.value());
-    assert!(a == b);
-    
-    let a_op2 = a.inc("A".to_string());
-    a.apply(&a_op2);
+    a.apply_inc("A".to_string());
+    b.apply_inc("B".to_string());
 
-    assert!(a > b);
+    assert_eq!(a.read(), b.read());
+    assert_ne!(a, b);
+
+    a.apply_inc("A".to_string());
+
+    assert_eq!(a.read(), b.read() + 1);
 }

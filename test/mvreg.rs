@@ -22,7 +22,7 @@ fn test_apply() {
 fn test_set_should_not_mutate_reg() {
     let reg = MVReg::<u8, u8>::new();
     let ctx = reg.read().derive_add_ctx(1);
-    let op = reg.set(32, ctx);
+    let op = reg.write(32, ctx);
     assert_eq!(reg, MVReg::new());
     let mut reg = reg;
     reg.apply(&op);
@@ -41,8 +41,8 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
     let ctx_4 = r1.read().derive_add_ctx(4);
     let ctx_7 = r2.read().derive_add_ctx(7);
 
-    let op1 = r1.set(23, ctx_4);
-    let op2 = r2.set(23, ctx_7);
+    let op1 = r1.write(23, ctx_4);
+    let op2 = r2.write(23, ctx_7);
     r1.apply(&op1);
     r2.apply(&op2);
 
@@ -67,9 +67,9 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
     let ctx_4 = r1.read().derive_add_ctx(4);
     let ctx_7 = r2.read().derive_add_ctx(7);
 
-    let op1 = r1.set(23, ctx_4);
+    let op1 = r1.write(23, ctx_4);
     r1.apply(&op1);
-    let op2 = r2.set(23, ctx_7);
+    let op2 = r2.write(23, ctx_7);
     r1.apply(&op2);
 
     let read_ctx = r1.read();
@@ -90,8 +90,8 @@ fn test_multi_val() {
     let ctx_1 = r1.read().derive_add_ctx(1);
     let ctx_2 = r2.read().derive_add_ctx(2);
 
-    let op1 = r1.set(32, ctx_1);
-    let op2 = r2.set(82, ctx_2);
+    let op1 = r1.write(32, ctx_1);
+    let op2 = r2.write(82, ctx_2);
 
     r1.apply(&op1);
     r2.apply(&op2);
@@ -150,7 +150,7 @@ fn build_test_reg(prim_ops: Vec<(u8, u8)>) -> TestReg {
     let mut ops = Vec::new();
     for (val, actor) in prim_ops {
         let ctx = reg.read().derive_add_ctx(actor);
-        let op = reg.set(val, ctx);
+        let op = reg.write(val, ctx);
         reg.apply(&op);
         ops.push(op);
     }
@@ -161,7 +161,7 @@ quickcheck! {
     fn prop_set_with_ctx_from_read(r_ops: Vec<(u8, u8)>, a: u8) -> bool {
         let mut reg = build_test_reg(r_ops).reg;
         let write_ctx = reg.read().derive_add_ctx(a);
-        let op = reg.set(23, write_ctx);
+        let op = reg.write(23, write_ctx);
         reg.apply(&op);
 
         let next_read_ctx = reg.read();

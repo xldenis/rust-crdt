@@ -2,19 +2,16 @@ extern crate serde;
 
 use std::fmt::Debug;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
 use error::{self, Error, Result};
 use traits::{FunkyCvRDT, FunkyCmRDT};
 
 /// Trait bound alias for lwwreg vals
-pub trait Val: Debug + Clone + PartialEq + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Clone + PartialEq + Send + Serialize + DeserializeOwned> Val for T {}
+pub trait Val: Debug + Clone + PartialEq {}
+impl<T: Debug + Clone + PartialEq> Val for T {}
 
 /// `Marker` must grow monotonically *and* must be globally unique
-pub trait Marker: Debug + Clone + Ord + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Clone + Ord + Send + Serialize + DeserializeOwned> Marker for T {}
+pub trait Marker: Debug + Clone + Ord {}
+impl<T: Debug + Clone + Ord> Marker for T {}
 
 
 /// `LWWReg` is a simple CRDT that contains an arbitrary value
@@ -22,7 +19,6 @@ impl<T: Debug + Clone + Ord + Send + Serialize + DeserializeOwned> Marker for T 
 /// of the user to guarantee that the source of the causal element
 /// is monotonic. Don't use timestamps unless you are comfortable
 /// with divergence.
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LWWReg<V: Val, M: Marker> {
     /// `val` is the opaque element contained within this CRDT

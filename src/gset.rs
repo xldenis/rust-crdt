@@ -10,7 +10,7 @@ pub struct GSet<A: Ord + Serialize + DeserializeOwned> {
 
 impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
     /// Instantiates an empty `GSet`.
-    pub fn new() -> GSet<A> {
+    pub fn new() -> Self {
         GSet { value: BTreeSet::new() }
     }
 

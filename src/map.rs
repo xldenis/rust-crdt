@@ -1,27 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
-
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use std::cmp::Ordering;
 
 use traits::{Causal, CvRDT, CmRDT};
 use vclock::{Dot, VClock, Actor};
 use ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Key Trait alias to reduce redundancy in type decl.
-pub trait Key: Debug + Ord + Clone + Send + Serialize + DeserializeOwned {}
-impl<T: Debug + Ord + Clone + Send + Serialize + DeserializeOwned> Key for T {}
+pub trait Key: Debug + Ord + Clone {}
+impl<T: Debug + Ord + Clone> Key for T {}
 
 /// Val Trait alias to reduce redundancy in type decl.
-pub trait Val<A: Actor>
-    : Debug + Default + Clone + Send + Serialize + DeserializeOwned
-    + Causal<A> + CmRDT + CvRDT
-{}
+pub trait Val<A: Actor>: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT {}
 
 impl<A, T> Val<A> for T where
     A: Actor,
-    T: Debug + Default + Clone + Send + Serialize + DeserializeOwned
-    + Causal<A> + CmRDT + CvRDT
+    T: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT
 {}
 
 /// Map CRDT - Supports Composition of CRDT's with reset-remove semantics.
@@ -33,7 +27,6 @@ impl<A, T> Val<A> for T where
 ///
 /// See examples/reset_remove.rs for an example of reset-remove semantics
 /// in action.
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Map<K: Key, V: Val<A>, A: Actor> {
     // This clock stores the current version of the Map, it should
@@ -43,7 +36,6 @@ pub struct Map<K: Key, V: Val<A>, A: Actor> {
     deferred: HashMap<VClock<A>, BTreeSet<K>>
 }
 
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry<V: Val<A>, A: Actor> {
     // The entry clock tells us which actors edited this entry.
@@ -54,7 +46,6 @@ struct Entry<V: Val<A>, A: Actor> {
 }
 
 /// Operations which can be applied to the Map CRDT
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<K: Key, V: Val<A>, A: Actor> {
     /// No change to the CRDT
@@ -225,12 +216,21 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
 
 impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     /// Constructs an empty Map
-    pub fn new() -> Map<K, V, A> {
+    pub fn new() -> Self {
         Map {
             clock: VClock::new(),
             entries: BTreeMap::new(),
             deferred: HashMap::new()
          }
+    }
+
+    /// Returns true if the map has no entries, false otherwise
+    pub fn is_empty(&self) -> ReadCtx<bool, A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: self.entries.is_empty()
+        }
     }
 
     /// Returns the number of entries in the Map
@@ -247,10 +247,10 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         let add_clock = self.clock.clone();
         let entry_opt = self.entries.get(&key);
         ReadCtx {
-            add_clock: add_clock,
+            add_clock,
             rm_clock: entry_opt
                 .map(|map_entry| map_entry.clock.clone())
-                .unwrap_or_else(|| VClock::new()),
+                .unwrap_or_default(),
             val: entry_opt
                 .map(|map_entry| map_entry.val.clone())
         }
@@ -289,17 +289,20 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 
     /// Apply a key removal given a clock.
     fn apply_rm(&mut self, key: K, clock: &VClock<A>) {
-        if !(clock <= &self.clock) {
-            let deferred_set = self.deferred.entry(clock.clone())
-                .or_insert_with(|| BTreeSet::new());
-            deferred_set.insert(key.clone());
+        match clock.partial_cmp(&self.clock) {
+            None | Some(Ordering::Greater) => {
+                let deferred_set = self.deferred.entry(clock.clone())
+                    .or_default();
+                deferred_set.insert(key.clone());
+            },
+            _ => { /* we've seen this remove already */ }
         }
 
         if let Some(mut existing_entry) = self.entries.remove(&key) {
             existing_entry.clock.subtract(&clock);
             if !existing_entry.clock.is_empty() {
                 existing_entry.val.truncate(&clock);
-                self.entries.insert(key.clone(), existing_entry);
+                self.entries.insert(key, existing_entry);
             }
         }
     }

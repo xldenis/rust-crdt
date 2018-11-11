@@ -49,6 +49,22 @@ fn build_opvec(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> OpVec {
 fn test_new() {
     let m: TestMap = Map::new();
     assert_eq!(m.len().val, 0);
+    assert!(m.is_empty().val);
+}
+
+#[test]
+fn test_is_empty() {
+    let mut m: TestMap = Map::new();
+    let is_empty_read = m.is_empty();
+    assert!(is_empty_read.val);
+
+    let op = m.update(101, is_empty_read.derive_add_ctx(1), |map, ctx| {
+        map.update(110, ctx, |reg, ctx| reg.write(2, ctx))
+    });
+    m.apply(&op);
+
+    let is_empty_ctx = m.is_empty();
+    assert!(!is_empty_ctx.val);
 }
 
 #[test]
@@ -58,7 +74,7 @@ fn test_update() {
     // constructs a default value if does not exist
     let ctx = m.get(&101).derive_add_ctx(1);
     let op = m.update(101, ctx, |map, ctx| {
-        map.update(110, ctx, |reg, ctx| reg.set(2, ctx))
+        map.update(110, ctx, |reg, ctx| reg.write(2, ctx))
     });
     
     assert_eq!(
@@ -92,7 +108,7 @@ fn test_update() {
     let op2 = m.update(101, m.get(&101).derive_add_ctx(1), |map, ctx| {
         map.update(110, ctx, |reg, ctx| {
             assert_eq!(reg.read().val, vec![2]);
-            reg.set(6, ctx)
+            reg.write(6, ctx)
         })
     });
     m.apply(&op2);
@@ -112,10 +128,10 @@ fn test_remove() {
     let op = m.update(
         101,
         add_ctx.clone(),
-        |m, ctx| m.update(110, ctx, |r, ctx| r.set(0, ctx))
+        |m, ctx| m.update(110, ctx, |r, ctx| r.write(0, ctx))
     );
     let mut inner_map: Map<TestKey, TestVal, TestActor> = Map::new();
-    let inner_op = inner_map.update(110, add_ctx, |r, ctx| r.set(0, ctx));
+    let inner_op = inner_map.update(110, add_ctx, |r, ctx| r.write(0, ctx));
     inner_map.apply(&inner_op);
     
     m.apply(&op);
@@ -137,7 +153,7 @@ fn test_reset_remove_semantics() {
     let mut m1 = TestMap::new();
     let op1 = m1.update(101, m1.get(&101).derive_add_ctx(74), |map, ctx| {
         map.update(110, ctx, |reg, ctx| {
-            reg.set(32, ctx)
+            reg.write(32, ctx)
         })
     });
     m1.apply(&op1);
@@ -151,7 +167,7 @@ fn test_reset_remove_semantics() {
     
     let op3 = m2.update(101, m2.get(&101).derive_add_ctx(37), |map, ctx| {
         map.update(220, ctx, |reg, ctx| {
-            reg.set(5, ctx)
+            reg.write(5, ctx)
         })
     });
     m2.apply(&op3);
@@ -229,13 +245,13 @@ fn test_op_exchange_commutes_quickcheck1() {
     let mut m1: Map<u8, MVReg<u8, u8>, u8> = Map::new();
     let mut m2: Map<u8, MVReg<u8, u8>, u8> = Map::new();
     
-    let m1_op1 = m1.update(0, m1.get(&0).derive_add_ctx(1), |reg, ctx| reg.set(0, ctx));
+    let m1_op1 = m1.update(0, m1.get(&0).derive_add_ctx(1), |reg, ctx| reg.write(0, ctx));
     m1.apply(&m1_op1);
     
     let m1_op2 = m1.rm(0, m1.get(&0).derive_rm_ctx());
     m1.apply(&m1_op2);
     
-    let m2_op1 = m2.update(0, m2.get(&0).derive_add_ctx(2), |reg, ctx| reg.set(0, ctx));
+    let m2_op1 = m2.update(0, m2.get(&0).derive_add_ctx(2), |reg, ctx| reg.write(0, ctx));
     m2.apply(&m2_op1);
     
     // m1 <- m2
@@ -257,14 +273,14 @@ fn test_op_deferred_remove() {
     let m1_up1 = m1.update(
         0,
         m1.get(&0).derive_add_ctx(1),
-        |reg, ctx| reg.set(0, ctx)
+        |reg, ctx| reg.write(0, ctx)
     );
     m1.apply(&m1_up1);
     
     let m1_up2 = m1.update(
         1,
         m1.get(&1).derive_add_ctx(1),
-        |reg, ctx| reg.set(1, ctx)
+        |reg, ctx| reg.write(1, ctx)
     );
     m1.apply(&m1_up2);
     
@@ -304,7 +320,7 @@ fn test_merge_deferred_remove() {
         0,
         m1.get(&0).derive_add_ctx(1),
         |map, ctx| map.update(0, ctx, |reg, ctx| {
-            reg.set(0, ctx)
+            reg.write(0, ctx)
         })
     );
     m1.apply(&m1_up1);
@@ -313,7 +329,7 @@ fn test_merge_deferred_remove() {
         1,
         m1.get(&1).derive_add_ctx(1),
         |map, ctx| map.update(1, ctx, |reg, ctx| {
-            reg.set(1, ctx)
+            reg.write(1, ctx)
         })
     );
     m1.apply(&m1_up2);

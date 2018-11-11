@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use vclock::{Actor, Dot};
 use gcounter::GCounter;
 use traits::{CvRDT, CmRDT};
@@ -17,19 +15,14 @@ use traits::{CvRDT, CmRDT};
 /// use crdts::{PNCounter, CmRDT};
 ///
 /// let mut a = PNCounter::new();
-/// let op1 = a.inc("A".to_string());
-/// a.apply(&op1);
-/// let op2 = a.inc("A".to_string());
-/// a.apply(&op2);
-/// let op3 = a.dec("A".to_string());
-/// a.apply(&op3);
-/// let op4 = a.inc("A".to_string());
-/// a.apply(&op4);
+/// a.apply_inc("A".to_string());
+/// a.apply_inc("A".to_string());
+/// a.apply_dec("A".to_string());
+/// a.apply_inc("A".to_string());
 ///
-/// assert_eq!(a.value(), 2);
+/// assert_eq!(a.read(), 2);
 /// ```
-#[serde(bound(deserialize = ""))]
-#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct PNCounter<A: Actor> {
     p: GCounter<A>,
     n: GCounter<A>,
@@ -46,7 +39,6 @@ pub enum Dir {
 
 /// An Op which is produced through from mutating the counter
 /// Ship these ops to other replicas to have them sync up.
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Op<A: Actor> {
     /// The witnessing dot for this op
@@ -55,24 +47,9 @@ pub struct Op<A: Actor> {
     pub dir: Dir
 }
 
-impl<A: Actor> Ord for PNCounter<A> {
-    fn cmp(&self, other: &PNCounter<A>) -> Ordering {
-        let (c, oc) = (self.value(), other.value());
-        c.cmp(&oc)
-    }
-}
-
-impl<A: Actor> PartialOrd
-    for PNCounter<A> {
-    fn partial_cmp(&self, other: &PNCounter<A>) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<A: Actor> PartialEq for PNCounter<A> {
-    fn eq(&self, other: &PNCounter<A>) -> bool {
-        let (c, oc) = (self.value(), other.value());
-        c == oc
+impl<A: Actor> Default for PNCounter<A> {
+    fn default() -> Self {
+        PNCounter::new()
     }
 }
 
@@ -96,25 +73,35 @@ impl<A: Actor> CvRDT for PNCounter<A> {
 
 impl<A: Actor> PNCounter<A> {
     /// Produces a new `PNCounter`.
-    pub fn new() -> PNCounter<A> {
+    pub fn new() -> Self {
         PNCounter {
             p: GCounter::new(),
             n: GCounter::new(),
         }
     }
 
-    /// Increments a particular actor's counter.
+    /// Generate an Op to increment the counter.
     pub fn inc(&self, actor: A) -> Op<A> {
         Op { dot: self.p.inc(actor), dir: Dir::Pos }
     }
 
-    /// Decrements a particular actor's counter.
+    /// Generate an Op to increment the counter.
     pub fn dec(&self, actor: A) -> Op<A> {
         Op { dot: self.n.inc(actor), dir: Dir::Neg }
     }
 
+    /// Increments counter.
+    pub fn apply_inc(&mut self, actor: A) {
+        self.p.apply_inc(actor)
+    }
+
+    /// Decrements counter.
+    pub fn apply_dec(&mut self, actor: A) {
+        self.n.apply_inc(actor)
+    }
+
     /// Returns the current value of this counter (P-N).
-    pub fn value(&self) -> i64 {
-        self.p.value() as i64 - self.n.value() as i64
+    pub fn read(&self) -> i64 {
+        (i128::from(self.p.read()) - i128::from(self.n.read())) as i64
     }
 }

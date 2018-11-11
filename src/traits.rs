@@ -1,8 +1,5 @@
 use std::fmt::Debug;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
 use vclock::{VClock, Actor};
 
 /// State based CRDT's replicate by transmitting the entire CRDT state
@@ -34,7 +31,7 @@ pub trait CmRDT {
     /// Applying ops in any of the valid orders will converge to the same CRDT state
     ///
     /// Op's must be idempotent, meaning any Op may be applied more than once.
-    type Op: Debug + Clone + Send + Serialize + DeserializeOwned;
+    type Op: Debug + Clone;
 
     /// Apply an Op to the CRDT
     fn apply(&mut self, op: &Self::Op);
@@ -68,7 +65,7 @@ pub trait FunkyCmRDT {
     type Error: Debug;
 
     /// Same Op laws from non-funky CmRDT above
-    type Op: Debug + Clone + Send + Serialize + DeserializeOwned;
+    type Op: Debug + Clone;
 
     /// Apply an Op to the CRDT
     fn apply(&mut self, op: &Self::Op) -> Result<(), Self::Error>;

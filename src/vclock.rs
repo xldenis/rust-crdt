@@ -22,14 +22,13 @@ use std::hash::Hash;
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug {}
-impl<A: Ord + Clone + Hash + Send + Serialize + DeserializeOwned + Debug> Actor for A {}
+pub trait Actor: Ord + Clone + Hash + Debug {}
+impl<A: Ord + Clone + Hash + Debug> Actor for A {}
 
 
 /// Dot is a version marker for a single actor
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Dot<A: Actor> {
+pub struct Dot<A> {
     /// The actor identifier
     pub actor: A,
     /// The current version of this actor
@@ -52,20 +51,25 @@ impl<A: Actor> Dot<A> {
 /// It can tell you if something causally descends something else,
 /// or if different replicas are "concurrent" (were mutated in
 /// isolation, and need to be resolved externally).
-#[serde(bound(deserialize = ""))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VClock<A: Actor> {
     /// dots is the mapping from actors to their associated counters
     pub dots: BTreeMap<A, u64>,
 }
 
+impl<A: Actor> Default for VClock<A> {
+    fn default() -> Self {
+        VClock::new()
+    }
+}
+
 impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
         if self == other {
             Some(Ordering::Equal)
-        } else if other.dots.iter().all(|(w, c)| &self.get(w) >= c) {
+        } else if other.dots.iter().all(|(w, c)| self.get(w) >= *c) {
             Some(Ordering::Greater)
-        } else if self.dots.iter().all(|(w, c)| &other.get(w) >= c) {
+        } else if self.dots.iter().all(|(w, c)| other.get(w) >= *c) {
             Some(Ordering::Less)
         } else {
             None
@@ -141,7 +145,7 @@ impl<A: Actor> CvRDT for VClock<A> {
 
 impl<A: Actor> VClock<A> {
     /// Returns a new `VClock` instance.
-    pub fn new() -> VClock<A> {
+    pub fn new() -> Self {
         VClock { dots: BTreeMap::new() }
     }
 
@@ -160,7 +164,7 @@ impl<A: Actor> VClock<A> {
     /// assert_eq!(v.get(&"A".to_string()), 2);
     /// ```
     pub fn apply_dot(&mut self, dot: Dot<A>) {
-        if !(self.get(&dot.actor) >= dot.counter) {
+        if self.get(&dot.actor) < dot.counter {
             self.dots.insert(dot.actor, dot.counter);
         }
     }
@@ -204,7 +208,7 @@ impl<A: Actor> VClock<A> {
     /// ```
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
-        Dot { actor: actor, counter: next }
+        Dot { actor, counter: next }
     }
 
     /// True if two vector clocks have diverged.
@@ -227,7 +231,7 @@ impl<A: Actor> VClock<A> {
     /// All actors not in the vclock have an implied count of 0
     pub fn get(&self, actor: &A) -> u64 {
         self.dots.get(actor)
-            .map(|counter| *counter)
+            .cloned()
             .unwrap_or(0)
     }
 
@@ -246,18 +250,20 @@ impl<A: Actor> VClock<A> {
                 dots.insert(actor.clone(), *counter);
             }
         }
-        VClock { dots: dots }
+        VClock { dots }
     }
 
     /// Returns an iterator over the dots in this vclock
-    pub fn iter(&self) -> impl Iterator<Item=(&A, &u64)> {
-        self.dots.iter()
+    pub fn iter(&self) -> impl Iterator<Item=Dot<&A>> {
+        self.dots
+            .iter()
+            .map(|(a, c)| Dot { actor: a, counter: *c })
     }
 
     /// Forget actors who appear in the given VClock with descendent dots
     pub fn subtract(&mut self, other: &VClock<A>) {
-        for (actor, counter) in other.iter() {
-            if counter >= &self.get(&actor) {
+        for Dot { actor, counter } in other.iter() {
+            if counter >= self.get(&actor) {
                 self.dots.remove(&actor);
             }
         }
