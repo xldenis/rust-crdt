@@ -20,10 +20,10 @@ impl<T: Debug + Clone> Val for T {}
 /// let r1_read_ctx = r1.read();
 /// let r2_read_ctx = r2.read();
 ///
-/// let op1 = r1.set("bob", r1_read_ctx.derive_add_ctx(123));
+/// let op1 = r1.write("bob", r1_read_ctx.derive_add_ctx(123));
 /// r1.apply(&op1);
 ///
-/// let op2 = r2.set("alice", r2_read_ctx.derive_add_ctx(111));
+/// let op2 = r2.write("alice", r2_read_ctx.derive_add_ctx(111));
 /// r2.apply(&op2);
 ///
 /// r1.apply(&op2); // we replicate op2 to r1
@@ -110,7 +110,7 @@ impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
 
 impl<V: Val, A: Actor> Default for MVReg<V, A> {
     fn default() -> Self {
-        MVReg { vals: Vec::new() }
+        MVReg::new()
     }
 }
 
@@ -188,11 +188,11 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
 impl<V: Val, A: Actor> MVReg<V, A> {
     /// Construct a new empty MVReg
     pub fn new() -> Self {
-        MVReg::default()
+        MVReg { vals: Vec::new() }
     }
 
     /// Set the value of the register
-    pub fn set(&self, val: impl Into<V>, ctx: AddCtx<A>) -> Op<V, A> {
+    pub fn write(&self, val: impl Into<V>, ctx: AddCtx<A>) -> Op<V, A> {
         Op::Put { clock: ctx.clock, val: val.into() }
     }
 
