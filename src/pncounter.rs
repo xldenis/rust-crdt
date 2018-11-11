@@ -1,3 +1,4 @@
+use num_bigint::BigInt;
 use vclock::{Actor, Dot};
 use gcounter::GCounter;
 use traits::{CvRDT, CmRDT};
@@ -20,7 +21,7 @@ use traits::{CvRDT, CmRDT};
 /// a.apply_dec("A".to_string());
 /// a.apply_inc("A".to_string());
 ///
-/// assert_eq!(a.read(), 2);
+/// assert_eq!(a.read(), 2.into());
 /// ```
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct PNCounter<A: Actor> {
@@ -72,7 +73,7 @@ impl<A: Actor> CvRDT for PNCounter<A> {
 }
 
 impl<A: Actor> PNCounter<A> {
-    /// Produces a new `PNCounter`.
+    /// Produce a new `PNCounter`.
     pub fn new() -> Self {
         PNCounter {
             p: GCounter::new(),
@@ -90,18 +91,20 @@ impl<A: Actor> PNCounter<A> {
         Op { dot: self.n.inc(actor), dir: Dir::Neg }
     }
 
-    /// Increments counter.
+    /// Increment counter.
     pub fn apply_inc(&mut self, actor: A) {
         self.p.apply_inc(actor)
     }
 
-    /// Decrements counter.
+    /// Decrement counter.
     pub fn apply_dec(&mut self, actor: A) {
         self.n.apply_inc(actor)
     }
 
-    /// Returns the current value of this counter (P-N).
-    pub fn read(&self) -> i64 {
-        (i128::from(self.p.read()) - i128::from(self.n.read())) as i64
+    /// Return the current value of this counter (P-N).
+    pub fn read(&self) -> BigInt {
+        let p : BigInt = self.p.read().into();
+        let n : BigInt = self.n.read().into();
+        p-n
     }
 }
