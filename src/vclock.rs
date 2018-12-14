@@ -15,10 +15,11 @@
 
 use super::*;
 
-use std::fmt::{self, Debug, Display};
 use std::cmp::{self, Ordering};
-use std::collections::{BTreeMap, btree_map};
+use std::collections::{btree_map, BTreeMap};
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
+use std::mem;
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
@@ -108,22 +109,20 @@ impl<A: Actor> Causal<A> for VClock<A> {
     /// assert_eq!(c.get(&43), 0);
     /// ```
     fn truncate(&mut self, other: &VClock<A>) {
-        let mut actors_to_remove: Vec<A> = Vec::new();
-        for (actor, count) in self.dots.iter_mut() {
-            let min_count = cmp::min(*count, other.get(actor));
-            if min_count > 0 {
-                *count = min_count
-            } else {
-                // Since an actor missing from the dots map has an implied counter of 0
-                // we can save some memory, and remove the actor.
-                actors_to_remove.push(actor.clone())
-            }
-        }
-
-        // finally, remove all the zero counter actor
-        for actor in actors_to_remove {
-            self.dots.remove(&actor);
-        }
+        let empty = BTreeMap::new();
+        let truncated = mem::replace(&mut self.dots, empty)
+            .into_iter()
+            .filter_map(|(actor, count)| {
+                // Since an actor missing from the dots map has an implied
+                // counter of 0 we can save some memory, and remove the actor.
+                let min_count = cmp::min(count, other.get(&actor));
+                match min_count {
+                    0 => None,
+                    _ => Some((actor, min_count)),
+                }
+            })
+            .collect();
+        mem::replace(&mut self.dots, truncated);
     }
 }
 
