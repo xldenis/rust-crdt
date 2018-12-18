@@ -49,7 +49,6 @@ fn main() {
     // This is because the `erik` entry was not
     // seen by the first device when it deleted
     // the entry.
-
     let bobs_friends: Vec<_> = friend_map   // Map<String, Orswot>
         .get(&"bob".to_string()).val // Option<Orswot>
         .unwrap()                    // Orswot

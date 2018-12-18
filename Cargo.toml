@@ -2,15 +2,14 @@
 name = "crdts"
 description = "Practical serializable thoroughly tested CRDTs (ORSWOT, counters, LWW) ported from riak_dt"
 version = "1.3.0"
-authors = ["Tyler Neely <t@jujit.su>"]
+authors = ["Tyler Neely <t@jujit.su>", "David Rusu <davidrusu.me@gmail.com>"]
 license = "Apache-2.0"
-homepage = "https://github.com/spacejam/rust-crdt"
-repository = "https://github.com/spacejam/rust-crdt"
-documentation = "http://spacejam.github.io/docs/crdts/crdts/"
+homepage = "https://github.com/rust-crdt/rust-crdt"
+repository = "https://github.com/rust-crdt/rust-crdt"
+documentation = "http://rust-crdt.github.io/rust-crdt/docs/crdts/crdts/"
 keywords = ["crdt", "data-structures", "distributed-systems", "vector-clock", "riak"]
 
 [[test]]
-
 name = "test"
 path = "test/test.rs"
 
@@ -20,6 +19,5 @@ serde = "1.0"
 serde_derive = "1.0"
 
 [dev-dependencies]
-maplit = "0.1.3"
 quickcheck = "0.6.2"
 rand = "0.4"
