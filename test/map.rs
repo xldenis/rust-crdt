@@ -729,6 +729,34 @@ quickcheck! {
         TestResult::from_bool(m1 == m2)
     }
     
+    
+    fn prop_merge_followed_by_merge(
+        ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
+        ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
+    ) -> TestResult {
+        let ops1 = build_opvec(ops1_prim);
+        let ops2 = build_opvec(ops2_prim);
+
+        if ops1.0 == ops2.0 {
+            return TestResult::discard();
+        }
+
+        let mut m1: TestMap = Map::new();
+        let mut m2: TestMap = Map::new();
+        
+        apply_ops(&mut m1, &ops1.1);
+        apply_ops(&mut m2, &ops2.1);
+
+        // m1 ^ m2
+        m1.merge(&m2);
+        
+        // m2 ^ m1
+        m2.merge(&m1);
+        
+        // m1 ^ m2 = m2 ^ m1
+        TestResult::from_bool(m1 == m2)
+    }
+    
     fn prop_merge_idempotent(
         ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> bool {

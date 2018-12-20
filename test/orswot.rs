@@ -273,34 +273,35 @@ fn test_dead_node_update() {
 fn test_reset_remove_semantics() {
     let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
 
-    let op1 = m1.update(
-        101,
-        m1.get(&101).derive_add_ctx(75),
-        |set, ctx| set.add(1, ctx.clone())
+    m1.apply(
+        &m1.update(
+            101,
+            m1.get(&101).derive_add_ctx(75),
+            |set, ctx| set.add(1, ctx.clone())
+        )
     );
-    m1.apply(&op1);
 
     let mut m2 = m1.clone();
 
-    let read_ctx = m1.get(&101);
-    let op2 = m1.rm(101, read_ctx.derive_rm_ctx());
-    m1.apply(&op2);
-    let op3 = m2.update(
-        101,
-        m2.get(&101).derive_add_ctx(93),
-        |set, ctx| set.add(2, ctx.clone())
+    m1.apply(&m1.rm(101, m1.get(&101).derive_rm_ctx()));
+    m2.apply(
+        &m2.update(
+            101,
+            m2.get(&101).derive_add_ctx(93),
+            |set, ctx| set.add(2, ctx.clone())
+        )
     );
-    m2.apply(&op3);
 
+    println!("m1: {:#?}", m1);
+    println!("m2: {:#?}", m2);
     assert_eq!(m1.get(&101).val, None);
     assert_eq!(
         m2.get(&101).val.unwrap().read().val,
         vec![1, 2].into_iter().collect()
     );
 
-    let snapshot = m1.clone();
     m1.merge(&m2);
-    m2.merge(&snapshot);
+    m2.merge(&m1);
 
     assert_eq!(m1, m2);
     assert_eq!(

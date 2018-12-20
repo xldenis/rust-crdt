@@ -12,14 +12,15 @@
 //! ```
 
 // TODO: we have a mixture of language here with witness and actor. Clean this up
-
-use super::*;
-
 use std::cmp::{self, Ordering};
 use std::collections::{btree_map, BTreeMap};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
+
+use serde_derive::{Serialize, Deserialize};
+
+use crate::traits::{CvRDT, CmRDT, Causal};
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.

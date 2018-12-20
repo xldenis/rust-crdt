@@ -1,5 +1,3 @@
-use super::*;
-
 use std::collections::BTreeSet;
 
 /// A `GSet` is a grow-only set.

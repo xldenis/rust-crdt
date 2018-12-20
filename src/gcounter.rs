@@ -1,6 +1,8 @@
 use num_bigint::BigUint;
-use traits::{CvRDT, CmRDT};
-use vclock::{VClock, Actor, Dot};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::traits::{CvRDT, CmRDT};
+use crate::vclock::{VClock, Actor, Dot};
 
 /// `GCounter` is a grow-only witnessed counter.
 ///

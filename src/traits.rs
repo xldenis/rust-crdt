@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vclock::{VClock, Actor};
+use crate::vclock::{VClock, Actor};
 
 /// State based CRDT's replicate by transmitting the entire CRDT state
 pub trait CvRDT {

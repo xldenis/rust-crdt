@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 
-use vclock::{VClock, Actor};
-use ctx::{ReadCtx, AddCtx};
-use traits::{Causal, CmRDT, CvRDT};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::vclock::{VClock, Actor};
+use crate::ctx::{ReadCtx, AddCtx};
+use crate::traits::{Causal, CmRDT, CvRDT};
 
 /// A Trait alias for the possible values MVReg's may hold
 pub trait Val: Debug + Clone {}
@@ -70,7 +72,7 @@ impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
 impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
     fn eq(&self, other: &Self) -> bool {
         for dot in self.vals.iter() {
-            let mut num_found = other.vals.iter().filter(|d| d == &dot).count();
+            let num_found = other.vals.iter().filter(|d| d == &dot).count();
 
             if num_found == 0 {
                 return false
@@ -79,7 +81,7 @@ impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
             assert_eq!(num_found, 1);
         }
         for dot in other.vals.iter() {
-            let mut num_found = self.vals.iter().filter(|d| d == &dot).count();
+            let num_found = self.vals.iter().filter(|d| d == &dot).count();
 
             if num_found == 0 {
                 return false

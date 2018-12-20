@@ -9,9 +9,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::cmp::Ordering;
 
-use traits::{CvRDT, CmRDT, Causal};
-use vclock::{VClock, Dot, Actor};
-use ctx::{ReadCtx, AddCtx, RmCtx};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::traits::{CvRDT, CmRDT, Causal};
+use crate::vclock::{VClock, Dot, Actor};
+use crate::ctx::{ReadCtx, AddCtx, RmCtx};
 
 /// Trait bound alias for members in a set
 pub trait Member: Debug + Clone + Hash + Eq {}
@@ -21,9 +23,9 @@ impl<T: Debug + Clone + Hash + Eq> Member for T {}
 /// the riak_dt CRDT library.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Orswot<M: Member, A: Actor> {
-    clock: VClock<A>,
-    entries: HashMap<M, VClock<A>>,
-    deferred: HashMap<VClock<A>, HashSet<M>>,
+    pub(crate) clock: VClock<A>,
+    pub(crate) entries: HashMap<M, VClock<A>>,
+    pub(crate) deferred: HashMap<VClock<A>, HashSet<M>>,
 }
 
 /// Op's define an edit to an Orswot, Op's must be replayed in the exact order
@@ -64,12 +66,11 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
                     // we've already seen this op
                     return;
                 }
-                {
-                    let mut member_vclock = self.entries.entry(member)
-                        .or_default();
 
-                    member_vclock.apply(&dot);
-                }
+                let member_vclock = self.entries.entry(member)
+                    .or_default();
+                member_vclock.apply(&dot);
+
                 self.clock.apply(&dot);
                 self.apply_deferred();
             },
@@ -154,16 +155,31 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
 
 impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
     fn truncate(&mut self, clock: &VClock<A>) {
-        // TODO: this is kinda lazy, improve this
-        let mut empty_set = Orswot::new();
-        empty_set.clock = clock.clone();
-
-        self.merge(&empty_set);
         self.clock.subtract(&clock);
 
-        for (_, member_clock) in self.entries.iter_mut() {
-            member_clock.subtract(&clock);
-        }
+        self.entries = self.entries
+            .clone()
+            .into_iter()
+            .filter_map(|(val, mut val_clock)| {
+                val_clock.subtract(&clock);
+                if val_clock.is_empty() {
+                    None
+                } else {
+                    Some((val, val_clock))
+                }
+            }).collect();
+
+        self.deferred = self.deferred
+            .clone()
+            .into_iter()
+            .filter_map(|(mut vclock, deferred)| {
+                vclock.subtract(&clock);
+                if vclock.is_empty() {
+                    None
+                } else {
+                    Some((vclock, deferred))
+                }
+            }).collect();
     }
 }
 

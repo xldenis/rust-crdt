@@ -8,6 +8,7 @@ homepage = "https://github.com/rust-crdt/rust-crdt"
 repository = "https://github.com/rust-crdt/rust-crdt"
 documentation = "http://rust-crdt.github.io/rust-crdt/docs/crdts/crdts/"
 keywords = ["crdt", "data-structures", "distributed-systems", "vector-clock", "riak"]
+edition = "2018"
 
 [[test]]
 name = "test"

@@ -1,9 +1,9 @@
-extern crate serde;
-
 use std::fmt::Debug;
 
-use error::{self, Error, Result};
-use traits::{FunkyCvRDT, FunkyCmRDT};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::error::{self, Error, Result};
+use crate::traits::{FunkyCvRDT, FunkyCmRDT};
 
 /// Trait bound alias for lwwreg vals
 pub trait Val: Debug + Clone + PartialEq {}

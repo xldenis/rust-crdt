@@ -3,7 +3,7 @@ use crdts::{CvRDT, VClock};
 use std::cmp::Ordering::*;
 
 fn main() {
-    #[derive(Default, Clone)]
+    #[derive(Debug, Default, Clone, PartialEq)]
     struct VersionedString {
         clock: VClock<String>,
         data: String
@@ -23,8 +23,7 @@ fn main() {
     // Alice first compares the vclock of her copy with bob's:
     match alices_copy.clock.partial_cmp(&bobs_copy.clock) {
         Some(Less) => { /* bob's clock is ahead */ },
-        None | Some(Equal) | Some(Greater) =>
-            panic!("Bob's clock should be ahead!!")
+        _ => panic!("Bob's clock should be ahead!!")
     }
     // Alice sees that bob's clock is ahead of hers.
     // This tells her that Bob has seen every edit she has
@@ -42,19 +41,13 @@ fn main() {
     // Alice shares her edit with bob and bob compares clocks
     match bobs_copy.clock.partial_cmp(&alices_copy.clock) {
         None => { /* these clocks are not ordered! */ },
-        Some(Equal) | Some(Less) | Some(Greater) =>
-            panic!("These clocks are not ordered!")
+        _ => panic!("These clocks are not ordered!")
     }
 
     // If we take a look at the clocks we see the problem.
-    assert_eq!(
-        format!("{}", bobs_copy.clock),
-        "<BOB:2>"
-    );
-    assert_eq!(
-        format!("{}", alices_copy.clock),
-        "<ALICE:1, BOB:1>"
-    );
+    assert_eq!(format!("{}", bobs_copy.clock), "<BOB:2>");
+    assert_eq!(format!("{}", alices_copy.clock), "<ALICE:1, BOB:1>");
+    
     // bob's version counter is bigger on his copy but alices
     // version counter is bigger on her copy
     // (version counters default to 0 if not present in a clock)
@@ -70,17 +63,17 @@ fn main() {
 
     // looking once more at bob's clock we see it includes all
     // edits done by both bob and alice
-    assert_eq!(
-        format!("{}", bobs_copy.clock),
-        "<ALICE:1, BOB:2>"
-    );
+    assert_eq!(format!("{}", bobs_copy.clock), "<ALICE:1, BOB:2>");
 
     // Once Alice receives bob's updated password she'll see that
     // his clock is ahead of hers and choose to keep his versioned string.
     match alices_copy.clock.partial_cmp(&bobs_copy.clock) {
-        Some(Less) => { /* bob's clock is ahead */ },
-        None | Some(Equal) | Some(Greater) =>
-            panic!("Alice's clock should be behind!!")
+        Some(Less) => {
+            // bob's clock is ahead
+            alices_copy = bobs_copy.clone()
+        },
+        _ => panic!("Alice's clock should be behind!!")
     }
-    alices_copy = bobs_copy.clone();
+
+    assert_eq!(alices_copy, bobs_copy);
 }
