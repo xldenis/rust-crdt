@@ -56,39 +56,3 @@ fn main() {
         Some(vec!["erik".to_string()])
     );
 }
-
-
-// Map {
-//  clock: VClock {
-//    dots: {1: 1, 2: 1}
-//  },
-//  entries: {
-//    "bob": Entry {
-//      clock: VClock { dots: {2: 1} },
-//      val: Orswot { clock: VClock { dots: {2: 1} }, entries: {
-//            "erik": VClock { dots: {2: 1} }
-//        },
-//        deferred: {}
-//      }
-//    }
-//  },
-//  deferred: {}
-// }
-// 
-// Map {
-//  clock: VClock {
-//    dots: {1: 1, 2: 1}
-//  },
-//  entries: {
-//    "bob": Entry {
-//      clock: VClock { dots: {2: 1} },
-//      val: Orswot { clock: VClock { dots: {1: 1, 2: 1} }, entries: {"janet": VClock { dots: {1: 1} },
-//          "erik": VClock { dots: {2: 1} }
-//        },
-//        deferred: {}
-//      }
-//    }
-//  },
-//  deferred: {}
-// }
-// 
