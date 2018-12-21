@@ -10,29 +10,19 @@ pub enum Error {
     /// We don't always check for this error case as it can be fairly expensive.
     /// Instead, users must design their system in a way that will make these
     /// dot collisions unlikely / impossible.
-    ConflictingMarker,
-    /// A generic error for any unmergable conflicts that may occur
-    MergeConflict,
-    /// We failed to apply a nested op to a nested CRDT
-    NestedOpFailed
+    ConflictingMarker
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
             Error::ConflictingMarker =>
-                "Dot's are used exactly once for the lifetime of a CRDT",
-            Error::MergeConflict =>
-                "There was a conflict while merging",
-            Error::NestedOpFailed =>
-                "We failed to apply a nested op to a nested CRDT"
+                "Dot's are used exactly once for the lifetime of a CRDT"
         }
     }
     fn cause(&self) -> Option<&error::Error> {
         match self {
-            Error::ConflictingMarker => None,
-            Error::MergeConflict => None,
-            Error::NestedOpFailed => None
+            Error::ConflictingMarker => None
         }
     }
 }
@@ -41,14 +31,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::ConflictingMarker => {
-                use std::error::Error;
-                write!(f, "{}", self.description())
-            },
-            Error::MergeConflict => {
-                use std::error::Error;
-                write!(f, "{}", self.description())
-            },
-            Error::NestedOpFailed => {
                 use std::error::Error;
                 write!(f, "{}", self.description())
             }
