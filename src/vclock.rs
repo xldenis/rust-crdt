@@ -217,10 +217,8 @@ impl<A: Actor> VClock<A> {
     /// ```
     /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// let a_op = a.inc("A".to_string());
-    /// a.apply(&a_op);
-    /// let b_op = b.inc("B".to_string());
-    /// b.apply(&b_op);
+    /// a.apply(&a.inc("A".to_string()));
+    /// b.apply(&b.inc("B".to_string()));
     /// assert!(a.concurrent(&b));
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {

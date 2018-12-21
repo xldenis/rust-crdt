@@ -328,8 +328,7 @@ mod test {
 
         assert_eq!(m.get(&0).val, None);
 
-        let op_1 = m.clock.inc(1);
-        m.clock.apply(&op_1);
+        m.clock.apply(&m.clock.inc(1));
 
         m.entries.insert(0, Entry {
             clock: m.clock.clone(),
@@ -342,27 +341,27 @@ mod test {
     #[test]
     fn test_op_exchange_converges_quickcheck1() {
         let op_actor1 = Op::Up {
-            dot: Dot { actor: 0, counter: 3 },
+            dot: Dot::new(0, 3),
             key: 9,
             op: Op::Up {
-                dot: Dot { actor: 0, counter: 3 },
+                dot: Dot::new(0, 3),
                 key: 0,
                 op: mvreg::Op::Put {
-                    clock: Dot { actor: 0, counter: 3 }.into(),
+                    clock: Dot::new(0, 3).into(),
                     val: 0
                 }
             }
         };
         let op_1_actor2 = Op::Up {
-            dot: Dot { actor: 1, counter: 1 },
+            dot: Dot::new(1, 1),
             key: 9,
             op: Op::Rm {
-                clock: Dot { actor: 1, counter: 1 }.into(),
+                clock: Dot::new(1, 1).into(),
                 key: 0
             }
         };
         let op_2_actor2 = Op::Rm {
-            clock: Dot { actor: 1, counter: 2 }.into(),
+            clock: Dot::new(1, 2).into(),
             key: 9
         };
         
@@ -370,16 +369,16 @@ mod test {
         let mut m2: TestMap = Map::new();
 
         m1.apply(&op_actor1);
-        assert_eq!(m1.clock, Dot { actor: 0, counter: 3 }.into());
-        assert_eq!(m1.entries.get(&9).unwrap().clock, Dot { actor: 0, counter: 3 }.into());
+        assert_eq!(m1.clock, Dot::new(0, 3).into());
+        assert_eq!(m1.entries.get(&9).unwrap().clock, Dot::new(0, 3).into());
         assert_eq!(m1.entries.get(&9).unwrap().val.deferred.len(), 0);
 
         m2.apply(&op_1_actor2);
         m2.apply(&op_2_actor2);
-        assert_eq!(m2.clock, Dot { actor: 1, counter: 1 }.into());
+        assert_eq!(m2.clock, Dot::new(1, 1).into());
         assert_eq!(m2.entries.get(&9), None);
         assert_eq!(
-            m2.deferred.get(&Dot { actor: 1, counter: 2 }.into()),
+            m2.deferred.get(&Dot::new(1, 2).into()),
             Some(&vec![9].into_iter().collect())
         );
         

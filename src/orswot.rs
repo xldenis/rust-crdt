@@ -271,23 +271,18 @@ mod tests {
     //  if removed elem is added first, it only misses one
     //  if non-related elem is added, it misses both
     fn ensure_deferred_merges() {
-        let (mut a, mut b) = (Orswot::<String, u8>::new(), Orswot::<String, u8>::new());
+        let mut a = Orswot::<String, u8>::new();
+        let mut b = Orswot::<String, u8>::new();
 
-        let b_read_ctx = b.read();
-        let b_op1 = b.add("element 1", b_read_ctx.derive_add_ctx(5));
-        b.apply(&b_op1);
+        b.apply(&b.add("element 1", b.read().derive_add_ctx(5)));
 
         // remove with a future context
-        let rm_op1 = b.remove("element 1", RmCtx { clock: Dot { actor: 5, counter: 4 }.into() });
-        b.apply(&rm_op1);
-        
-        let a_read_ctx = a.read();
-        let a_op = a.add("element 4", a_read_ctx.derive_add_ctx(6));
-        a.apply(&a_op);
+        b.apply(&b.remove("element 1", RmCtx { clock: Dot::new(5, 4).into() }));
+
+        a.apply(&a.add("element 4", a.read().derive_add_ctx(6)));
         
         // remove with a future context
-        let rm_op2 = b.remove("element 9", RmCtx { clock: Dot { actor: 4, counter: 4 }.into() });
-        b.apply(&rm_op2);
+        b.apply(&b.remove("element 9", RmCtx { clock: Dot::new(4, 4).into() }));
 
         let mut merged = Orswot::new();
         merged.merge(&a);
@@ -305,8 +300,7 @@ mod tests {
         let mut c = a.clone();
 
         // add element 5 from witness 1
-        let op = a.add(5, a.read().derive_add_ctx(1));
-        a.apply(&op);
+        a.apply(&a.add(5, a.read().derive_add_ctx(1)));
 
         // on another clock, remove 5 with an advanced clock for witnesses 1 and 4
         let mut vc = VClock::new();
@@ -314,8 +308,7 @@ mod tests {
         vc.apply_dot(Dot::new(4, 8));
 
         // remove from b (has not yet seen add for 5) with advanced ctx
-        let rm_op = b.remove(5, RmCtx { clock: vc });
-        b.apply(&rm_op);
+        b.apply(&b.remove(5, RmCtx { clock: vc }));
         assert_eq!(b.deferred.len(), 1);
 
         // ensure that the deferred elements survive across a merge
@@ -336,35 +329,29 @@ mod tests {
     fn test_present_but_removed() {
         let mut a = Orswot::<u8, String>::new();
         let mut b = Orswot::<u8, String>::new();
-        let a_add_ctx = a.read()
-            .derive_add_ctx("A".to_string());
-        let a_op = a.add(0, a_add_ctx);
-        a.apply(&a_op);
+
+        a.apply(&a.add(0, a.read().derive_add_ctx("A".to_string())));
+
         // Replicate it to C so A has 0->{a, 1}
         let c = a.clone();
 
-        let rm_op = a.remove(0, a.contains(&0).derive_rm_ctx());
-        a.apply(&rm_op);
+        a.apply(&a.remove(0, a.contains(&0).derive_rm_ctx()));
         assert_eq!(a.deferred.len(), 0);
 
-        let b_add_ctx = b.read()
-            .derive_add_ctx("B".to_string());
-        let b_op = b.add(0, b_add_ctx);
-        b.apply(&b_op);
+        b.apply(&b.add(0, b.read().derive_add_ctx("B".to_string())));
 
         // Replicate B to A, so now A has a 0
         // the one with a Dot of {b,1} and clock
         // of [{a, 1}, {b, 1}]
         a.merge(&b);
 
-        let rm_op = b.remove(0, b.contains(&0).derive_rm_ctx());
-        b.apply(&rm_op);
+        b.apply(&b.remove(0, b.contains(&0).derive_rm_ctx()));
+
         // Both C and A have a '0', but when they merge, there should be
         // no '0' as C's has been removed by A and A's has been removed by
         // C.
         a.merge(&b);
         a.merge(&c);
-        println!("{:#?}", a);
         assert!(a.read().val.is_empty());
     }
 }

@@ -22,22 +22,15 @@ impl<T: Debug + Clone> Val for T {}
 /// let r1_read_ctx = r1.read();
 /// let r2_read_ctx = r2.read();
 ///
-/// let op1 = r1.write("bob", r1_read_ctx.derive_add_ctx(123));
-/// r1.apply(&op1);
+/// r1.apply(&r1.write("bob", r1_read_ctx.derive_add_ctx(123)));
 ///
-/// let op2 = r2.write("alice", r2_read_ctx.derive_add_ctx(111));
-/// r2.apply(&op2);
+/// let op = r2.write("alice", r2_read_ctx.derive_add_ctx(111));
+/// r2.apply(&op);
 ///
-/// r1.apply(&op2); // we replicate op2 to r1
-/// 
-/// let read_ctx = r1.read();
-/// assert_eq!(read_ctx.val, vec!["bob".to_string(), "alice".to_string()]);
-/// assert_eq!(
-///     read_ctx.add_clock,
-///     vec![Dot::new(123, 1), Dot::new(111, 1)]
-///       .into_iter()
-///       .collect()
-/// );
+/// r1.apply(&op); // we replicate op to r1
+///
+/// // Since "bob" and "alice" were added concurrently, we see both on read
+/// assert_eq!(r1.read().val, vec!["bob".to_string(), "alice".to_string()]);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MVReg<V: Val, A: Actor> {
