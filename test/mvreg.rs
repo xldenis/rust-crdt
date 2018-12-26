@@ -11,11 +11,10 @@ struct TestReg {
 #[test]
 fn test_apply() {
     let mut reg = MVReg::new();
-    let clock = VClock::from(Dot { actor: 2, counter: 1 });
+    let clock = VClock::from(Dot::new(2, 1));
     reg.apply(&Op::Put { clock: clock.clone(), val: 71 });
-    let read_ctx = reg.read();
-    assert_eq!(read_ctx.add_clock, clock);
-    assert_eq!(read_ctx.val, vec![71]);
+    assert_eq!(reg.read().add_clock, clock);
+    assert_eq!(reg.read().val, vec![71]);
 }
 
 #[test]
@@ -24,12 +23,11 @@ fn test_set_should_not_mutate_reg() {
     let ctx = reg.read().derive_add_ctx(1);
     let op = reg.write(32, ctx);
     assert_eq!(reg, MVReg::new());
+    
     let mut reg = reg;
     reg.apply(&op);
-
-    let read_ctx = reg.read();
-    assert_eq!(read_ctx.val, vec![32]);
-    assert_eq!(read_ctx.add_clock, VClock::from(Dot { actor: 1, counter: 1 }));
+    assert_eq!(reg.read().val, vec![32]);
+    assert_eq!(reg.read().add_clock, VClock::from(Dot::new(1, 1)));
 }
 
 #[test]
@@ -37,24 +35,15 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
     // this is important to prevent because it breaks commutativity
     let mut r1: MVReg<u8, u8> = MVReg::new();
     let mut r2 = MVReg::new();
-
-    let ctx_4 = r1.read().derive_add_ctx(4);
-    let ctx_7 = r2.read().derive_add_ctx(7);
-
-    let op1 = r1.write(23, ctx_4);
-    let op2 = r2.write(23, ctx_7);
-    r1.apply(&op1);
-    r2.apply(&op2);
+    r1.apply(&r1.write(23, r1.read().derive_add_ctx(4)));
+    r2.apply(&r2.write(23, r2.read().derive_add_ctx(7)));
 
     r1.merge(&r2);
 
-    let read_ctx = r1.read();
-    assert_eq!(read_ctx.val, vec![23, 23]);
+    assert_eq!(r1.read().val, vec![23, 23]);
     assert_eq!(
-        read_ctx.add_clock,
-        vec![Dot::new(4, 1), Dot::new(7, 1)]
-            .into_iter()
-            .collect()
+        r1.read().add_clock,
+        vec![Dot::new(4, 1), Dot::new(7, 1)].into_iter().collect()
     );
 }
 
@@ -64,21 +53,13 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
     let mut r1: MVReg<u8, u8> = MVReg::new();
     let r2 = MVReg::new();
 
-    let ctx_4 = r1.read().derive_add_ctx(4);
-    let ctx_7 = r2.read().derive_add_ctx(7);
+    r1.apply(&r1.write(23, r1.read().derive_add_ctx(4)));
+    r1.apply(&r2.write(23, r2.read().derive_add_ctx(7)));
 
-    let op1 = r1.write(23, ctx_4);
-    r1.apply(&op1);
-    let op2 = r2.write(23, ctx_7);
-    r1.apply(&op2);
-
-    let read_ctx = r1.read();
-    assert_eq!(read_ctx.val, vec![23, 23]);
+    assert_eq!(r1.read().val, vec![23, 23]);
     assert_eq!(
-        read_ctx.add_clock,
-        vec![Dot::new(4, 1), Dot::new(7, 1)]
-            .into_iter()
-            .collect()
+        r1.read().add_clock,
+        vec![Dot::new(4, 1), Dot::new(7, 1)].into_iter().collect()
     );
 }
 
@@ -86,21 +67,13 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
 fn test_multi_val() {
     let mut r1 = MVReg::<u8, u8>::new();
     let mut r2 = MVReg::<u8, u8>::new();
-    
-    let ctx_1 = r1.read().derive_add_ctx(1);
-    let ctx_2 = r2.read().derive_add_ctx(2);
 
-    let op1 = r1.write(32, ctx_1);
-    let op2 = r2.write(82, ctx_2);
-
-    r1.apply(&op1);
-    r2.apply(&op2);
+    r1.apply(&r1.write(32, r1.read().derive_add_ctx(1)));
+    r2.apply(&r2.write(82, r2.read().derive_add_ctx(2)));
 
     r1.merge(&r2);
-    let read_ctx = r1.read();
-    
     assert!(
-        read_ctx.val == vec![32, 82] || read_ctx.val == vec![82, 32]
+        r1.read().val == vec![32, 82] || r1.read().val == vec![82, 32]
     );
 }
 
@@ -109,8 +82,8 @@ fn test_op_commute_quickcheck1() {
     let mut reg1 = MVReg::new();
     let mut reg2 = MVReg::new();
 
-    let op1 = Op::Put { clock: Dot { actor: 1, counter: 1 }.into(), val: 1 };
-    let op2 = Op::Put { clock: Dot { actor: 2, counter: 1 }.into(), val: 2 };
+    let op1 = Op::Put { clock: Dot::new(1, 1).into(), val: 1 };
+    let op2 = Op::Put { clock: Dot::new(2, 1).into(), val: 2 };
 
     reg2.apply(&op2);
     reg2.apply(&op1);
@@ -128,10 +101,8 @@ fn ops_are_not_compatible(opss: &[&Vec<(u8, u8)>]) -> bool {
             let mut a_clock = VClock::new();
             let mut b_clock = VClock::new();
             for ((_, a_actor), (_, b_actor)) in a_ops.iter().zip(b_ops.iter()) {
-                let a_clock_op = a_clock.inc(*a_actor);
-                let b_clock_op = b_clock.inc(*b_actor);
-                a_clock.apply(&a_clock_op);
-                b_clock.apply(&b_clock_op);
+                a_clock.apply(&a_clock.inc(*a_actor));
+                b_clock.apply(&b_clock.inc(*b_actor));
 
                 if b_clock.get(&a_actor) == a_clock.get(&a_actor) {
                     // this check is a bit broad as it's not a failure
@@ -161,8 +132,7 @@ quickcheck! {
     fn prop_set_with_ctx_from_read(r_ops: Vec<(u8, u8)>, a: u8) -> bool {
         let mut reg = build_test_reg(r_ops).reg;
         let write_ctx = reg.read().derive_add_ctx(a);
-        let op = reg.write(23, write_ctx);
-        reg.apply(&op);
+        reg.apply(&reg.write(23, write_ctx));
 
         let next_read_ctx = reg.read();
         next_read_ctx.val == vec![23]

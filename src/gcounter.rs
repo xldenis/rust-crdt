@@ -1,6 +1,8 @@
 use num_bigint::BigUint;
-use traits::{CvRDT, CmRDT};
-use vclock::{VClock, Actor, Dot};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::traits::{CvRDT, CmRDT};
+use crate::vclock::{VClock, Actor, Dot};
 
 /// `GCounter` is a grow-only witnessed counter.
 ///
@@ -12,14 +14,12 @@ use vclock::{VClock, Actor, Dot};
 /// let mut a = GCounter::new();
 /// let mut b = GCounter::new();
 ///
-/// let op_a1 = a.inc("A".to_string());
-/// let op_b = b.inc("B".to_string());
-/// a.apply(&op_a1);
-/// b.apply(&op_b);
+/// a.apply(&a.inc("A".to_string()));
+/// b.apply(&b.inc("B".to_string()));
+///
 /// assert_eq!(a.read(), b.read());
-/// let op_a2 = a.inc("A".to_string());
-/// a.inc("A".to_string());
-/// a.apply(&op_a2);
+///
+/// a.apply(&a.inc("A".to_string()));
 /// assert!(a.read() > b.read());
 /// ```
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]

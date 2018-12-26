@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 
-use vclock::{VClock, Actor};
-use ctx::{ReadCtx, AddCtx};
-use traits::{Causal, CmRDT, CvRDT};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::vclock::{VClock, Actor};
+use crate::ctx::{ReadCtx, AddCtx};
+use crate::traits::{Causal, CmRDT, CvRDT};
 
 /// A Trait alias for the possible values MVReg's may hold
 pub trait Val: Debug + Clone {}
@@ -20,22 +22,15 @@ impl<T: Debug + Clone> Val for T {}
 /// let r1_read_ctx = r1.read();
 /// let r2_read_ctx = r2.read();
 ///
-/// let op1 = r1.write("bob", r1_read_ctx.derive_add_ctx(123));
-/// r1.apply(&op1);
+/// r1.apply(&r1.write("bob", r1_read_ctx.derive_add_ctx(123)));
 ///
-/// let op2 = r2.write("alice", r2_read_ctx.derive_add_ctx(111));
-/// r2.apply(&op2);
+/// let op = r2.write("alice", r2_read_ctx.derive_add_ctx(111));
+/// r2.apply(&op);
 ///
-/// r1.apply(&op2); // we replicate op2 to r1
-/// 
-/// let read_ctx = r1.read();
-/// assert_eq!(read_ctx.val, vec!["bob".to_string(), "alice".to_string()]);
-/// assert_eq!(
-///     read_ctx.add_clock,
-///     vec![Dot::new(123, 1), Dot::new(111, 1)]
-///       .into_iter()
-///       .collect()
-/// );
+/// r1.apply(&op); // we replicate op to r1
+///
+/// // Since "bob" and "alice" were added concurrently, we see both on read
+/// assert_eq!(r1.read().val, vec!["bob".to_string(), "alice".to_string()]);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MVReg<V: Val, A: Actor> {
@@ -70,7 +65,7 @@ impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
 impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
     fn eq(&self, other: &Self) -> bool {
         for dot in self.vals.iter() {
-            let mut num_found = other.vals.iter().filter(|d| d == &dot).count();
+            let num_found = other.vals.iter().filter(|d| d == &dot).count();
 
             if num_found == 0 {
                 return false
@@ -79,7 +74,7 @@ impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
             assert_eq!(num_found, 1);
         }
         for dot in other.vals.iter() {
-            let mut num_found = self.vals.iter().filter(|d| d == &dot).count();
+            let num_found = self.vals.iter().filter(|d| d == &dot).count();
 
             if num_found == 0 {
                 return false

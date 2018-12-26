@@ -4,39 +4,36 @@ use crdts::{CvRDT, CmRDT, Map, Orswot};
 
 fn main() {
     let mut friend_map: Map<String, Orswot<String, u8>, u8> = Map::new();
-    let add_ctx = friend_map.len()
-        .derive_add_ctx(1);
 
-    {
-        let op = friend_map.update(
+    friend_map.apply(
+        &friend_map.update(
             "bob",
-            add_ctx,
+            friend_map.len().derive_add_ctx(1),
             |set, ctx| set.add("janet", ctx)
-        );
-        friend_map.apply(&op);
-    }
+        )
+    );
 
     let mut friend_map_on_2nd_device = friend_map.clone();
-    // the map on the 2nd devices adds to `bob`'s friend set
-    {
-        let device2_add_ctx = friend_map_on_2nd_device
-            .len()
-            .derive_add_ctx(2);
-        let op = friend_map_on_2nd_device.update(
+
+    // the map on the 2nd devices adds 'erik' to `bob`'s friends
+    friend_map_on_2nd_device.apply(
+        &friend_map_on_2nd_device.update(
             "bob",
-            device2_add_ctx,
+            friend_map_on_2nd_device.len().derive_add_ctx(2),
             |set, c| set.add("erik", c)
-        );
-        friend_map_on_2nd_device.apply(&op);
-    }
-    // Meanwhile, the map on the first device removes
+        )
+    );
+
+    // Meanwhile, on the first device we remove
     // the entire 'bob' entry from the friend map.
-    {
-        let rm_ctx = friend_map
-            .get(&"bob".to_string())
-            .derive_rm_ctx();
-        friend_map.rm("bob", rm_ctx);
-    }
+    friend_map.apply(
+        &friend_map.rm(
+            "bob",
+            friend_map.get(&"bob".to_string()).derive_rm_ctx()
+        )
+    );
+
+    assert!(friend_map.get(&"bob".to_string()).val.is_none());
 
     // once these two devices synchronize...
     friend_map.merge(&friend_map_on_2nd_device);
@@ -49,15 +46,13 @@ fn main() {
     // This is because the `erik` entry was not
     // seen by the first device when it deleted
     // the entry.
-    let bobs_friends: Vec<_> = friend_map   // Map<String, Orswot>
+    let bobs_friends = friend_map   // Map<String, Orswot>
         .get(&"bob".to_string()).val // Option<Orswot>
-        .unwrap()                    // Orswot
-        .read().val                  // HashSet
-        .into_iter()                 // Iter<Item=String>
-        .collect();                  // Vec<String>
+        .map(|set| set.read().val)                    // Orswot
+        .map(|hashmap| hashmap.into_iter().collect::<Vec<_>>());
 
     assert_eq!(
         bobs_friends,
-        vec!["erik".to_string()]
+        Some(vec!["erik".to_string()])
     );
 }

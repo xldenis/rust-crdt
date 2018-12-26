@@ -1,5 +1,3 @@
-use super::*;
-
 use std::collections::BTreeSet;
 
 /// A `GSet` is a grow-only set.
@@ -28,9 +26,8 @@ impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
     /// assert!(a.contains(&2));
     /// ```
     pub fn merge(&mut self, other: GSet<A>) {
-        for e in other.value.into_iter() {
-            self.insert(e);
-        }
+        other.value.into_iter()
+            .for_each(|e| self.insert(e))
     }
 
     /// Inserts an element into this `GSet`.

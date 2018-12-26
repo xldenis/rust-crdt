@@ -1,9 +1,9 @@
-extern crate serde;
-
 use std::fmt::Debug;
 
-use error::{self, Error, Result};
-use traits::{FunkyCvRDT, FunkyCmRDT};
+use serde_derive::{Serialize, Deserialize};
+
+use crate::error::{self, Error, Result};
+use crate::traits::{FunkyCvRDT, FunkyCmRDT};
 
 /// Trait bound alias for lwwreg vals
 pub trait Val: Debug + Clone + PartialEq {}
@@ -50,21 +50,14 @@ impl<V: Val, M: Marker> FunkyCvRDT for LWWReg<V, M> {
     /// assert!(l1.merge(&l2).is_err());
     /// ```
     fn merge(&mut self, other: &Self) -> Result<()> {
-        if other.marker > self.marker {
-            self.val = other.val.clone();
-            self.marker = other.marker.clone();
-            Ok(())
-        } else if other.marker == self.marker && other.val != self.val {
-            Err(Error::ConflictingMarker)
-        } else {
-            Ok(())
-        }
+        self.update(other.val.clone(), other.marker.clone())
     }
 }
 
 impl<V: Val, M: Marker> FunkyCmRDT for LWWReg<V, M> {
     type Error = error::Error;
-    // LWWReg's are small enough that we can replicate the entire state as an Op
+    // LWWReg's are small enough that we can replicate
+    // the entire state as an Op
     type Op = Self;
 
     fn apply(&mut self, op: &Self::Op) -> Result<()> {
