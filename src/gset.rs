@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
+use serde_derive::{Serialize, Deserialize};
+
 /// A `GSet` is a grow-only set.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct GSet<A: Ord + Serialize + DeserializeOwned> {
-    value: BTreeSet<A>,
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct GSet<T: Ord> {
+    value: BTreeSet<T>,
 }
 
-impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
+impl<T: Ord> GSet<T> {
     /// Instantiates an empty `GSet`.
     pub fn new() -> Self {
         GSet { value: BTreeSet::new() }
@@ -25,7 +27,7 @@ impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
     /// assert!(a.contains(&1));
     /// assert!(a.contains(&2));
     /// ```
-    pub fn merge(&mut self, other: GSet<A>) {
+    pub fn merge(&mut self, other: GSet<T>) {
         other.value.into_iter()
             .for_each(|e| self.insert(e))
     }
@@ -40,7 +42,7 @@ impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
     /// a.insert(1);
     /// assert!(a.contains(&1));
     /// ```
-    pub fn insert(&mut self, element: A) {
+    pub fn insert(&mut self, element: T) {
         self.value.insert(element);
     }
 
@@ -54,7 +56,7 @@ impl<A: Ord + Serialize + DeserializeOwned> GSet<A> {
     /// a.insert(1);
     /// assert!(a.contains(&1));
     /// ```
-    pub fn contains(&self, element: &A) -> bool {
+    pub fn contains(&self, element: &T) -> bool {
         self.value.contains(element)
     }
 }

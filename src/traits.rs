@@ -2,13 +2,13 @@ use std::fmt::Debug;
 
 use crate::vclock::{VClock, Actor};
 
-/// State based CRDT's replicate by transmitting the entire CRDT state
+/// State based CRDT's replicate by transmitting the entire CRDT state.
 pub trait CvRDT {
     /// Merge the given CRDT into the current CRDT.
     fn merge(&mut self, other: &Self);
 }
 
-/// Operation based CRDT's replicate with ops
+/// Operation based CRDT's replicate by transmitting each operation.
 pub trait CmRDT {
     /// Op defines a mutation to the CRDT.
     /// As long as Op's from one actor are replayed in exactly the same order they
@@ -37,13 +37,14 @@ pub trait CmRDT {
     fn apply(&mut self, op: &Self::Op);
 }
 
-/// Crdt's are causal if they are built on top of vector clocks
+/// CRDT's are causal if they are built on top of vector clocks.
 pub trait Causal<A: Actor> {
     /// Truncate the CRDT to remove anything before the clock
     fn truncate(&mut self, clock: &VClock<A>);
 }
 
-/// Funky variant of the CvRDT
+/// Funky variant of the `CvRDT` trait.
+///
 /// This trait is for CvRDT's whose state space can't be easily encoded in rusts
 /// typesystem so we rely on runtime error checking.
 /// E.g. the unicity of timestamp assumption in LWWReg
@@ -56,7 +57,8 @@ pub trait FunkyCvRDT {
 }
 
 
-/// Funky variant of the CmRDT
+/// Funky variant of the `CmRDT` trait.
+///
 /// This trait is for CvRDT's whose state space can't be easily encoded in rusts
 /// typesystem so we rely on runtime error checking.
 /// E.g. the unicity property of timestamp assumption in LWWReg

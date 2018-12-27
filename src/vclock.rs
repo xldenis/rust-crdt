@@ -1,9 +1,10 @@
-//! The `vclock` crate provides a generic vector clock implementation.
+//! This module contains a generic Vector Clock implementation.
 //!
 //! # Examples
 //!
 //! ```
-//! use crdts::*;
+//! use crdts::{Dot, VClock};
+//!
 //! let mut a = VClock::new();
 //! let mut b = VClock::new();
 //! a.apply_dot(Dot::new("A".to_string(), 2));
