@@ -30,6 +30,9 @@ pub mod orswot;
 /// This module contains a Grow-only Counter.
 pub mod gcounter;
 
+/// This module contains a Grow-only Set.
+pub mod gset;
+
 /// This module contains a Positive-Negative Counter.
 pub mod pncounter;
 
@@ -42,6 +45,7 @@ pub mod ctx;
 // Top-level re-exports for CRDT structures.
 pub use crate::{
     gcounter::GCounter,
+    gset::GSet,
     lwwreg::LWWReg,
     map::Map,
     mvreg::MVReg,
