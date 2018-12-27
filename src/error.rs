@@ -1,12 +1,13 @@
 use std::{fmt, error, result};
 
 /// CRDT Result alias to reduce redundency in function return types
-pub type Result<T> = result::Result<T, Error>;
+pub(crate) type Result<T> = result::Result<T, Error>;
 
 /// Possible CRDT error codes
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// A conflicting change to a CRDT is witnessed by a dot that already exists.
+    ///
     /// We don't always check for this error case as it can be fairly expensive.
     /// Instead, users must design their system in a way that will make these
     /// dot collisions unlikely / impossible.
