@@ -1,8 +1,4 @@
-//! The `orswot` crate provides an implementation of the addition-biased OR-Set
-//! without tombstones (ORSWOT).  Ported directly from riak_dt.
-//!
-//! # Examples
-//!
+/// Observed-Remove Set With Out Tombstones (ORSWOT), ported directly from `riak_dt`.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;

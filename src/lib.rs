@@ -1,44 +1,51 @@
-//! `crdts` is a library of thoroughly-tested, serializable CRDT's
-//! ported from the riak_dt library to rust.
+//! A pure-Rust library of thoroughly-tested, serializable CRDT's.
+//!
+//! [Conflict-free Replicated Data Types][crdt] (CRDTs) are data structures
+//! which can be replicated across multiple networked nodes, and whose
+//! properties allow for deterministic, local resolution of
+//! possible inconsistencies which might result from concurrent
+//! operations.
+//!
+//! [crdt]: https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type
 #![crate_type = "lib"]
 #![deny(missing_docs)]
 
-mod traits;
+mod error;
+pub use crate::error::Error;
 
-/// This module contains a Last-Write-Wins Register
+mod traits;
+pub use crate::traits::{CvRDT, CmRDT, Causal, FunkyCvRDT, FunkyCmRDT};
+
+/// This module contains a Last-Write-Wins Register.
 pub mod lwwreg;
 
-/// This module contains a Multi-Value Register
+/// This module contains a Multi-Value Register.
 pub mod mvreg;
 
-/// This module contains a Vector Clock
 pub mod vclock;
 
-/// This module contains an Observed-Remove Set with out tombstones
+/// This module contains an Observed-Remove Set With Out Tombstones.
 pub mod orswot;
 
-/// This module contains a Grow-only counter
+/// This module contains a Grow-only Counter.
 pub mod gcounter;
 
-/// This module contains a postive-negative counter
+/// This module contains a Positive-Negative Counter.
 pub mod pncounter;
 
-/// This module contains a Map with Reset-Remove and Observed-Remove semantics
+/// This module contains a Map with Reset-Remove and Observed-Remove semantics.
 pub mod map;
 
-/// This module contains context for editing a CRDT
+/// This module contains context for editing a CRDT.
 pub mod ctx;
-mod error;
 
+// Top-level re-exports for CRDT structures.
 pub use crate::{
-    error::Error,
     gcounter::GCounter,
     lwwreg::LWWReg,
+    map::Map,
     mvreg::MVReg,
     orswot::Orswot,
     pncounter::PNCounter,
-    map::Map,
-    ctx::{ReadCtx, AddCtx, RmCtx},
-    vclock::{VClock, Dot, Actor},
-    traits::{CvRDT, CmRDT, Causal, FunkyCvRDT, FunkyCmRDT}
+    vclock::{Dot, VClock},
 };
