@@ -22,7 +22,7 @@ fn build_opvec(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> OpVec {
             0 => {
                 map::Op::Up {
                     dot: clock.inc(actor),
-                    key: key,
+                    key,
                     op: match inner_choice % 3 {
                         0 => map::Op::Up {
                             dot: clock.inc(actor),
@@ -758,7 +758,7 @@ quickcheck! {
         m == m_snapshot
     }
     
-    fn prop_truncate_with_empty_vclock_is_nop(
+    fn prop_forget_with_empty_vclock_is_nop(
         ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> bool {
         let ops = build_opvec(ops_prim);
@@ -767,8 +767,23 @@ quickcheck! {
         apply_ops(&mut m, &ops.1);
 
         let m_snapshot = m.clone();
-        m.truncate(&VClock::new());
+        m.forget(&VClock::new());
 
         m == m_snapshot
+    }
+
+    fn prop_forget_with_map_clock_is_empty_map(
+        ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
+    ) -> bool {
+        let mut m = TestMap::new();
+        apply_ops(&mut m, &build_opvec(ops_prim).1);
+
+        m.forget(&m.len().rm_clock);
+
+
+        // Map may still have some deferred removes
+        // stored, so it's not neccessarily true that
+        // m == TestMap::new()
+        m.len().val == 0
     }
 }

@@ -100,10 +100,10 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
                     // shouldn't drop it!
 
                     let mut common = clock.intersection(&other_entry_clock);
-                    clock.subtract(&common);
-                    other_entry_clock.subtract(&common);
-                    clock.subtract(&other.clock);
-                    other_entry_clock.subtract(&self.clock);
+                    clock.forget(&common);
+                    other_entry_clock.forget(&common);
+                    clock.forget(&other.clock);
+                    other_entry_clock.forget(&self.clock);
 
                     common.merge(&clock);
                     common.merge(&other_entry_clock);
@@ -123,7 +123,7 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
         }
 
         for (entry, mut clock) in other_remaining.into_iter() {
-            clock.subtract(&self.clock);
+            clock.forget(&self.clock);
             if !clock.is_empty() {
                 // other has witnessed a novel addition, so add it
                 keep.insert(entry, clock);
@@ -150,14 +150,14 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
 }
 
 impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
-    fn truncate(&mut self, clock: &VClock<A>) {
-        self.clock.subtract(&clock);
+    fn forget(&mut self, clock: &VClock<A>) {
+        self.clock.forget(&clock);
 
         self.entries = self.entries
             .clone()
             .into_iter()
             .filter_map(|(val, mut val_clock)| {
-                val_clock.subtract(&clock);
+                val_clock.forget(&clock);
                 if val_clock.is_empty() {
                     None
                 } else {
@@ -169,7 +169,7 @@ impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
             .clone()
             .into_iter()
             .filter_map(|(mut vclock, deferred)| {
-                vclock.subtract(&clock);
+                vclock.forget(&clock);
                 if vclock.is_empty() {
                     None
                 } else {
@@ -214,7 +214,7 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         }
 
         if let Some(mut existing_clock) = self.entries.remove(&member) {
-            existing_clock.subtract(&clock);
+            existing_clock.forget(&clock);
             if !existing_clock.is_empty() {
                 self.entries.insert(member.clone(), existing_clock);
             }

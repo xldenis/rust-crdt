@@ -94,37 +94,14 @@ impl<A: Actor + Display> Display for VClock<A> {
 }
 
 impl<A: Actor> Causal<A> for VClock<A> {
-    /// Truncates to the greatest-lower-bound of the given VClock and self
-    /// ``` rust
-    /// use crdts::*;
-    /// let mut c = VClock::new();
-    /// c.apply_dot(Dot::new(23, 6));
-    /// c.apply_dot(Dot::new(89, 14));
-    /// let c2 = c.clone();
-    ///
-    /// c.truncate(&c2); // should be a no-op
-    /// assert_eq!(c, c2);
-    ///
-    /// c.apply_dot(Dot::new(43, 1));
-    /// assert_eq!(c.get(&43), 1);
-    /// c.truncate(&c2); // should remove the 43 => 1 entry
-    /// assert_eq!(c.get(&43), 0);
-    /// ```
-    fn truncate(&mut self, other: &VClock<A>) {
-        let empty = BTreeMap::new();
-        let truncated = mem::replace(&mut self.dots, empty)
-            .into_iter()
-            .filter_map(|(actor, count)| {
-                // Since an actor missing from the dots map has an implied
-                // counter of 0 we can save some memory, and remove the actor.
-                let min_count = cmp::min(count, other.get(&actor));
-                match min_count {
-                    0 => None,
-                    _ => Some((actor, min_count)),
-                }
-            })
-            .collect();
-        mem::replace(&mut self.dots, truncated);
+    /// Forget any actors that have smaller counts than the
+    /// count in the given vclock
+    fn forget(&mut self, other: &VClock<A>) {
+        for Dot { actor, counter } in other.iter() {
+            if counter >= self.get(&actor) {
+                self.dots.remove(&actor);
+            }
+        }
     }
 }
 
@@ -252,20 +229,45 @@ impl<A: Actor> VClock<A> {
         VClock { dots }
     }
 
+    /// Reduces this VClock to the greatest-lower-bound of the given
+    /// VClock and itsef, as an example see the following code.
+    /// ``` rust
+    /// use crdts::{VClock, Dot, Causal};
+    /// let mut c = VClock::new();
+    /// c.apply_dot(Dot::new(23, 6));
+    /// c.apply_dot(Dot::new(89, 14));
+    /// let c2 = c.clone();
+    ///
+    /// c.glb(&c2); // this is a no-op since `glb { c, c } = c`
+    /// assert_eq!(c, c2);
+    ///
+    /// c.apply_dot(Dot::new(43, 1));
+    /// assert_eq!(c.get(&43), 1);
+    /// c.glb(&c2); // should remove the 43 => 1 entry
+    /// assert_eq!(c.get(&43), 0);
+    /// ```
+    pub fn glb(&mut self, other: &VClock<A>) {
+        let empty = BTreeMap::new();
+        let forgeted = mem::replace(&mut self.dots, empty)
+            .into_iter()
+            .filter_map(|(actor, count)| {
+                // Since an actor missing from the dots map has an implied
+                // counter of 0 we can save some memory, and remove the actor.
+                let min_count = cmp::min(count, other.get(&actor));
+                match min_count {
+                    0 => None,
+                    _ => Some((actor, min_count)),
+                }
+            })
+            .collect();
+        mem::replace(&mut self.dots, forgeted);
+    }
+
     /// Returns an iterator over the dots in this vclock
     pub fn iter(&self) -> impl Iterator<Item=Dot<&A>> {
         self.dots
             .iter()
             .map(|(a, c)| Dot { actor: a, counter: *c })
-    }
-
-    /// Forget actors who appear in the given VClock with descendent dots
-    pub fn subtract(&mut self, other: &VClock<A>) {
-        for Dot { actor, counter } in other.iter() {
-            if counter >= self.get(&actor) {
-                self.dots.remove(&actor);
-            }
-        }
     }
 }
 

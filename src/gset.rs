@@ -3,9 +3,15 @@ use std::collections::BTreeSet;
 use serde_derive::{Serialize, Deserialize};
 
 /// A `GSet` is a grow-only set.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GSet<T: Ord> {
     value: BTreeSet<T>,
+}
+
+impl<T: Ord> Default for GSet<T> {
+    fn default() -> Self {
+        GSet::new()
+    }
 }
 
 impl<T: Ord> GSet<T> {
