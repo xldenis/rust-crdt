@@ -1,4 +1,4 @@
-extern crate crdts;
+use std::cmp::Ordering;
 
 use crdts::*;
 
@@ -11,12 +11,12 @@ fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
 }
 
 quickcheck! {
-    fn prop_from_iter_of_iter_is_nop(prims: Vec<u8>) -> bool {
+    fn prop_into_iter_produces_same_vclock(prims: Vec<u8>) -> bool {
         let clock = build_vclock(prims);
         clock == clock.clone().into_iter().collect()
     }
 
-    fn prop_from_iter_order_of_dots_should_not_matter(dots: Vec<(u8, u64)>) -> bool {
+    fn prop_dots_are_commutative_in_from_iter(dots: Vec<(u8, u64)>) -> bool {
         // TODO: is there a better way to check comutativity of dots?
         let reverse: VClock<u8> = dots.clone()
             .into_iter()
@@ -31,7 +31,7 @@ quickcheck! {
         reverse == forward
     }
 
-    fn prop_from_iter_dots_should_be_idempotent(dots: Vec<(u8, u64)>) -> bool {
+    fn prop_idempotent_dots_in_from_iter(dots: Vec<(u8, u64)>) -> bool {
         let single: VClock<u8> = dots.clone()
             .into_iter()
             .map(|(a, c)| Dot::new(a, c))
@@ -46,31 +46,44 @@ quickcheck! {
         single == double
     }
 
-    fn prop_truncate_self_is_nop(prims: Vec<u8>) -> bool {
+    fn prop_glb_self_is_nop(prims: Vec<u8>) -> bool {
         let clock = build_vclock(prims);
-        let mut clock_truncated = clock.clone();
-        clock_truncated.truncate(&clock);
+        let mut clock_glb = clock.clone();
+        clock_glb.glb(&clock);
 
-        clock_truncated == clock
+        clock_glb == clock
     }
 
-    fn prop_subtract_with_empty_is_nop(prims: Vec<u8>) -> bool {
+    fn prop_glb_commutes(prims_a: Vec<u8>, prims_b: Vec<u8>) -> bool {
+        let a = build_vclock(prims_a);
+        let b = build_vclock(prims_b);
+
+        let mut a_glb = a.clone();
+        a_glb.glb(&b);
+
+        let mut b_glb = b.clone();
+        b_glb.glb(&a);
+
+        a_glb == b_glb
+    }
+
+    fn prop_forget_with_empty_is_nop(prims: Vec<u8>) -> bool {
         let clock = build_vclock(prims);
         let mut subbed  = clock.clone();
-        subbed.subtract(&VClock::new());
+        subbed.forget(&VClock::new());
         subbed == clock
     }
 
-    fn prop_subtract_self_is_empty(prims: Vec<u8>) -> bool {
+    fn prop_forget_self_is_empty(prims: Vec<u8>) -> bool {
         let clock = build_vclock(prims);
         let mut subbed  = clock.clone();
-        subbed.subtract(&clock);
+        subbed.forget(&clock);
         subbed == VClock::new()
     }
 }
 
 #[test]
-fn test_subtract() {
+fn test_forget() {
     let mut a: VClock<u8> = vec![Dot::new(1, 4), Dot::new(2, 3), Dot::new(5, 9)]
         .into_iter()
         .collect();
@@ -81,7 +94,7 @@ fn test_subtract() {
         .into_iter()
         .collect();
 
-    a.subtract(&b);
+    a.forget(&b);
     assert_eq!(a, expected);
 }
 

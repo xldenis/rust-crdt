@@ -77,14 +77,14 @@ impl<K: Key, V: Val<A>, A: Actor> Default for Map<K, V, A> {
 }
 
 impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
-    fn truncate(&mut self, clock: &VClock<A>) {
+    fn forget(&mut self, clock: &VClock<A>) {
         let mut to_remove: Vec<K> = Vec::new();
         for (key, entry) in self.entries.iter_mut() {
-            entry.clock.subtract(&clock);
+            entry.clock.forget(&clock);
             if entry.clock.is_empty() {
                 to_remove.push(key.clone());
             } else {
-                entry.val.truncate(&clock);
+                entry.val.forget(&clock);
             }
         }
 
@@ -94,14 +94,14 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
 
         let mut deferred = HashMap::new();
         for (mut rm_clock, key) in self.deferred.clone().into_iter() {
-            rm_clock.subtract(&clock);
+            rm_clock.forget(&clock);
             if !rm_clock.is_empty() {
                 deferred.insert(rm_clock, key);
             }
         }
         self.deferred = deferred;
 
-        self.clock.subtract(&clock);
+        self.clock.forget(&clock);
     }
 }
 
@@ -147,14 +147,14 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
                     // other doesn't contain this entry because it:
                     //  1. has witnessed it and dropped it
                     //  2. hasn't witnessed it
-                    entry.clock.subtract(&other.clock);
+                    entry.clock.forget(&other.clock);
                     if entry.clock.is_empty() {
                         // other has seen this entry and dropped it
                     } else {
                         // the other map has not seen this version of this entry, so add it
                         let mut actors_who_have_deleted_this_entry = other.clock.clone();
-                        actors_who_have_deleted_this_entry.subtract(&entry.clock);
-                        entry.val.truncate(&actors_who_have_deleted_this_entry);
+                        actors_who_have_deleted_this_entry.forget(&entry.clock);
+                        entry.val.forget(&actors_who_have_deleted_this_entry);
                         keep.insert(key, entry);
                     }
                 }
@@ -164,10 +164,10 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
                     let mut e_clock = entry.clock.clone();
                     let mut oe_clock = other_entry.clock.clone();
                     let mut common = e_clock.intersection(&oe_clock);
-                    e_clock.subtract(&common);
-                    oe_clock.subtract(&common);
-                    e_clock.subtract(&other.clock);
-                    oe_clock.subtract(&self.clock);
+                    e_clock.forget(&common);
+                    oe_clock.forget(&common);
+                    e_clock.forget(&other.clock);
+                    oe_clock.forget(&self.clock);
 
                     // Perfectly possible that an item in both sets should be dropped
                     common.merge(&e_clock);
@@ -177,9 +177,9 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
                         entry.val.merge(&other_entry.val);
                         let mut actors_who_have_deleted_this_entry = entry.clock.clone();
                         actors_who_have_deleted_this_entry.merge(&other_entry.clock);
-                        actors_who_have_deleted_this_entry.subtract(&common);
+                        actors_who_have_deleted_this_entry.forget(&common);
 
-                        entry.val.truncate(&actors_who_have_deleted_this_entry);
+                        entry.val.forget(&actors_who_have_deleted_this_entry);
                         entry.clock = common;
                         keep.insert(key.clone(), entry);
                     }
@@ -190,12 +190,12 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
         }
 
         for (key, mut entry) in other_remaining.into_iter() {
-            entry.clock.subtract(&self.clock);
+            entry.clock.forget(&self.clock);
             if !entry.clock.is_empty() {
                 // other has witnessed a novel addition, so add it
                 let mut actors_who_deleted_this_entry = self.clock.clone();
-                actors_who_deleted_this_entry.subtract(&entry.clock);
-                entry.val.truncate(&actors_who_deleted_this_entry);
+                actors_who_deleted_this_entry.forget(&entry.clock);
+                entry.val.forget(&actors_who_deleted_this_entry);
                 keep.insert(key, entry);
             }
         }
@@ -302,9 +302,9 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         }
 
         if let Some(mut existing_entry) = self.entries.remove(&key) {
-            existing_entry.clock.subtract(&clock);
+            existing_entry.clock.forget(&clock);
             if !existing_entry.clock.is_empty() {
-                existing_entry.val.truncate(&clock);
+                existing_entry.val.forget(&clock);
                 self.entries.insert(key, existing_entry);
             }
         }
@@ -370,8 +370,8 @@ mod test {
 
         m1.apply(&op_actor1);
         assert_eq!(m1.clock, Dot::new(0, 3).into());
-        assert_eq!(m1.entries.get(&9).unwrap().clock, Dot::new(0, 3).into());
-        assert_eq!(m1.entries.get(&9).unwrap().val.deferred.len(), 0);
+        assert_eq!(m1.entries[&9].clock, Dot::new(0, 3).into());
+        assert_eq!(m1.entries[&9].val.deferred.len(), 0);
 
         m2.apply(&op_1_actor2);
         m2.apply(&op_2_actor2);

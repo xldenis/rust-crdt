@@ -11,8 +11,8 @@ fn main() {
 
     let mut reg = MVReg::<String, u128>::new();
 
-    let op1 = reg.write("some val", reg.read().derive_add_ctx(9742820));
-    let op2 = reg.write("some other val", reg.read().derive_add_ctx(648572));
+    let op1 = reg.write("some val", reg.read().derive_add_ctx(9_742_820));
+    let op2 = reg.write("some other val", reg.read().derive_add_ctx(648_572));
     reg.apply(&op1);
     reg.apply(&op2);
 

@@ -89,12 +89,12 @@ impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
 impl<V: Val + Eq, A: Actor> Eq for MVReg<V, A> {}
 
 impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
-    fn truncate(&mut self, clock: &VClock<A>) {
+    fn forget(&mut self, clock: &VClock<A>) {
         self.vals = self.vals.clone().into_iter()
             .filter_map(|(mut val_clock, val)| {
-                val_clock.subtract(&clock);
+                val_clock.forget(&clock);
                 if val_clock.is_empty() {
-                    None
+                    None // remove this value from the register
                 } else {
                     Some((val_clock, val))
                 }
