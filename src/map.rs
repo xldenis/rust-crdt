@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::cmp::Ordering;
+use std::mem;
 
 use serde_derive::{Serialize, Deserialize};
 
@@ -78,28 +79,30 @@ impl<K: Key, V: Val<A>, A: Actor> Default for Map<K, V, A> {
 
 impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     fn forget(&mut self, clock: &VClock<A>) {
-        let mut to_remove: Vec<K> = Vec::new();
-        for (key, entry) in self.entries.iter_mut() {
-            entry.clock.forget(&clock);
-            if entry.clock.is_empty() {
-                to_remove.push(key.clone());
-            } else {
+        self.entries = mem::replace(&mut self.entries, BTreeMap::new())
+            .into_iter()
+            .filter_map(|(key, mut entry)| {
+                entry.clock.forget(&clock);
                 entry.val.forget(&clock);
-            }
-        }
+                if entry.clock.is_empty() {
+                    None // remove this entry since its been forgotten
+                } else {
+                    Some((key, entry))
+                }
+            })
+            .collect();
 
-        for key in to_remove {
-            self.entries.remove(&key);
-        }
-
-        let mut deferred = HashMap::new();
-        for (mut rm_clock, key) in self.deferred.clone().into_iter() {
-            rm_clock.forget(&clock);
-            if !rm_clock.is_empty() {
-                deferred.insert(rm_clock, key);
-            }
-        }
-        self.deferred = deferred;
+        self.deferred = mem::replace(&mut self.deferred, HashMap::new())
+            .into_iter()
+            .filter_map(|(mut rm_clock, key)| {
+                rm_clock.forget(&clock);
+                if rm_clock.is_empty() {
+                    None // this deferred remove has been forgotten
+                } else {
+                    Some((rm_clock, key))
+                }
+            })
+            .collect();
 
         self.clock.forget(&clock);
     }

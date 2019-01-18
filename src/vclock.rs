@@ -247,8 +247,7 @@ impl<A: Actor> VClock<A> {
     /// assert_eq!(c.get(&43), 0);
     /// ```
     pub fn glb(&mut self, other: &VClock<A>) {
-        let empty = BTreeMap::new();
-        let forgeted = mem::replace(&mut self.dots, empty)
+        self.dots = mem::replace(&mut self.dots, BTreeMap::new())
             .into_iter()
             .filter_map(|(actor, count)| {
                 // Since an actor missing from the dots map has an implied
@@ -260,7 +259,6 @@ impl<A: Actor> VClock<A> {
                 }
             })
             .collect();
-        mem::replace(&mut self.dots, forgeted);
     }
 
     /// Returns an iterator over the dots in this vclock

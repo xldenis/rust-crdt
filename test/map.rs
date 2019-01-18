@@ -1,16 +1,13 @@
 use crdts::{map, mvreg, VClock, Dot, MVReg, Map, CvRDT, CmRDT, Causal};
 use quickcheck::TestResult;
 
-type TestActor = u8;
-type TestKey = u8;
-type TestVal = MVReg<u8, TestActor>;
-type TestOp = map::Op<TestKey, Map<TestKey, TestVal, TestActor>, TestActor>;
-type TestMap =  Map<TestKey, Map<TestKey, TestVal, TestActor>, TestActor>;
+type TActor = u8;
+type TKey = u8;
+type TVal = MVReg<u8, TActor>;
+type TOp = map::Op<TKey, Map<TKey, TVal, TActor>, TActor>;
+type TMap =  Map<TKey, Map<TKey, TVal, TActor>, TActor>;
 
-#[derive(Debug, Clone)]
-struct OpVec(TestActor, Vec<TestOp>);
-
-fn build_opvec(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> OpVec {
+fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
     let (actor, ops_data) = prims;
 
     let mut ops = Vec::new();
@@ -39,19 +36,19 @@ fn build_opvec(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> OpVec {
         };
         ops.push(op);
     }
-    OpVec(actor, ops)
+    (actor, ops)
 }
 
 #[test]
 fn test_new() {
-    let m: TestMap = Map::new();
+    let m: TMap = Map::new();
     assert_eq!(m.len().val, 0);
     assert!(m.is_empty().val);
 }
 
 #[test]
 fn test_is_empty() {
-    let mut m: TestMap = Map::new();
+    let mut m: TMap = Map::new();
     let is_empty_read = m.is_empty();
     assert!(is_empty_read.val);
 
@@ -67,7 +64,7 @@ fn test_is_empty() {
 
 #[test]
 fn test_update() {
-    let mut m: TestMap = Map::new();
+    let mut m: TMap = Map::new();
     
     // constructs a default value if does not exist
     let ctx = m.get(&101).derive_add_ctx(1);
@@ -123,10 +120,10 @@ fn test_update() {
 
 #[test]
 fn test_remove() {
-    let mut m: TestMap = Map::new();
+    let mut m: TMap = Map::new();
     let add_ctx = m.len().derive_add_ctx(1);
     
-    let mut inner_map: Map<TestKey, TestVal, TestActor> = Map::new();
+    let mut inner_map: Map<TKey, TVal, TActor> = Map::new();
     inner_map.apply(
         &inner_map.update(110, add_ctx.clone(), |r, ctx| r.write(0, ctx))
     );
@@ -150,7 +147,7 @@ fn test_remove() {
 
 #[test]
 fn test_reset_remove_semantics() {
-    let mut m1 = TestMap::new();
+    let mut m1 = TMap::new();
 
     m1.apply(
         &m1.update(101, m1.get(&101).derive_add_ctx(74), |map, ctx| {
@@ -186,7 +183,7 @@ fn test_reset_remove_semantics() {
 
 #[test]
 fn test_updating_with_current_clock_should_be_a_nop() {
-    let mut m1: TestMap = Map::new();
+    let mut m1: TMap = Map::new();
     
     m1.apply(
         &map::Op::Up {
@@ -209,8 +206,8 @@ fn test_updating_with_current_clock_should_be_a_nop() {
 
 #[test]
 fn test_concurrent_update_and_remove_add_bias() {
-    let mut m1 = TestMap::new();
-    let mut m2 = TestMap::new();
+    let mut m1 = TMap::new();
+    let mut m2 = TMap::new();
     
     let op1 = map::Op::Rm {
         clock: Dot::new(1, 1).into(),
@@ -402,7 +399,7 @@ fn test_idempotent_quickcheck_bug1() {
 
 #[test]
 fn test_idempotent_quickcheck_bug2() {
-    let mut m: TestMap = Map::new();
+    let mut m: TMap = Map::new();
     m.apply(&map::Op::Up {
         dot: Dot::new(32, 5),
         key: 0,
@@ -424,9 +421,9 @@ fn test_idempotent_quickcheck_bug2() {
 
 #[test]
 fn test_nop_on_new_map_should_remain_a_new_map() {
-    let mut map = TestMap::new();
+    let mut map = TMap::new();
     map.apply(&map::Op::Nop);
-    assert_eq!(map, TestMap::new());
+    assert_eq!(map, TMap::new());
 }
 
 #[test]
@@ -448,8 +445,8 @@ fn test_op_exchange_same_as_merge_quickcheck1() {
             }
         }
     };
-    let mut m1: TestMap = Map::new();
-    let mut m2: TestMap = Map::new();
+    let mut m1: TMap = Map::new();
+    let mut m2: TMap = Map::new();
     m1.apply(&op1);
     m2.apply(&op2);
     
@@ -499,7 +496,7 @@ fn test_idempotent_quickcheck1() {
             }
         }
     ];
-    let mut m: TestMap = Map::new();
+    let mut m: TMap = Map::new();
     apply_ops(&mut m, &ops);
     let m_snapshot = m.clone();
     
@@ -510,7 +507,7 @@ fn test_idempotent_quickcheck1() {
     assert_eq!(m, m_snapshot);
 }
 
-fn apply_ops(map: &mut TestMap, ops: &[TestOp]) {
+fn apply_ops(map: &mut TMap, ops: &[TOp]) {
     for op in ops.iter().cloned() {
         map.apply(&op);
     }
@@ -522,15 +519,15 @@ quickcheck! {
         ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
 
         if ops1.0 == ops2.0 {
             return TestResult::discard();
         }
 
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -548,15 +545,15 @@ quickcheck! {
         ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
 
         if ops1.0 == ops2.0 {
             return TestResult::discard();
         }
         
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -577,17 +574,17 @@ quickcheck! {
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops3_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
-        let ops3 = build_opvec(ops3_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
+        let ops3 = build_ops(ops3_prim);
 
         if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
             return TestResult::discard();
         }
         
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
-        let mut m3: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
+        let mut m3: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -608,8 +605,8 @@ quickcheck! {
     fn prop_op_idempotent(
         ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> bool {
-        let ops = build_opvec(ops_prim);
-        let mut m = TestMap::new();
+        let ops = build_ops(ops_prim);
+        let mut m = TMap::new();
         
         apply_ops(&mut m, &ops.1);
         let m_snapshot = m.clone();
@@ -623,17 +620,17 @@ quickcheck! {
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops3_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
-        let ops3 = build_opvec(ops3_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
+        let ops3 = build_ops(ops3_prim);
 
         if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
             return TestResult::discard();
         }
         
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
-        let mut m3: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
+        let mut m3: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -657,16 +654,16 @@ quickcheck! {
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops3_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
-        let ops3 = build_opvec(ops3_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
+        let ops3 = build_ops(ops3_prim);
         if ops1.0 == ops2.0 || ops1.0 == ops3.0 || ops2.0 == ops3.0 {
             return TestResult::discard();
         }
         
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
-        let mut m3: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
+        let mut m3: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -690,15 +687,15 @@ quickcheck! {
         ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
 
         if ops1.0 == ops2.0 {
             return TestResult::discard();
         }
 
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -719,15 +716,15 @@ quickcheck! {
         ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> TestResult {
-        let ops1 = build_opvec(ops1_prim);
-        let ops2 = build_opvec(ops2_prim);
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
 
         if ops1.0 == ops2.0 {
             return TestResult::discard();
         }
 
-        let mut m1: TestMap = Map::new();
-        let mut m2: TestMap = Map::new();
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
         
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
@@ -745,9 +742,9 @@ quickcheck! {
     fn prop_merge_idempotent(
         ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> bool {
-        let ops = build_opvec(ops_prim);
+        let ops = build_ops(ops_prim);
 
-        let mut m: TestMap = Map::new();
+        let mut m: TMap = Map::new();
         apply_ops(&mut m, &ops.1);
         let m_snapshot = m.clone();
         
@@ -761,9 +758,9 @@ quickcheck! {
     fn prop_forget_with_empty_vclock_is_nop(
         ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> bool {
-        let ops = build_opvec(ops_prim);
+        let ops = build_ops(ops_prim);
 
-        let mut m: TestMap = Map::new();
+        let mut m: TMap = Map::new();
         apply_ops(&mut m, &ops.1);
 
         let m_snapshot = m.clone();
@@ -775,11 +772,10 @@ quickcheck! {
     fn prop_forget_with_map_clock_is_empty_map(
         ops_prim: (u8, Vec<(u8, u8, u8, u8, u8)>)
     ) -> bool {
-        let mut m = TestMap::new();
-        apply_ops(&mut m, &build_opvec(ops_prim).1);
+        let mut m = TMap::new();
+        apply_ops(&mut m, &build_ops(ops_prim).1);
 
         m.forget(&m.len().rm_clock);
-
 
         // Map may still have some deferred removes
         // stored, so it's not neccessarily true that

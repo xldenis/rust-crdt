@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use crdts::*;
 
 fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
