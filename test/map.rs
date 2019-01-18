@@ -1,6 +1,8 @@
 use crdts::{map, mvreg, VClock, Dot, MVReg, Map, CvRDT, CmRDT, Causal};
 use quickcheck::TestResult;
 
+use super::vclock;
+
 type TActor = u8;
 type TKey = u8;
 type TVal = MVReg<u8, TActor>;
@@ -781,5 +783,39 @@ quickcheck! {
         // stored, so it's not neccessarily true that
         // m == TestMap::new()
         m.len().val == 0
+    }
+
+    fn prop_forget_than_merge_same_as_merge_than_forget(
+        ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
+        ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
+        vclock_prim: Vec<u8>
+    ) -> TestResult {
+        let ops1 = build_ops(ops1_prim);
+        let ops2 = build_ops(ops2_prim);
+
+        if ops1.0 == ops2.0 {
+            return TestResult::discard();
+        }
+
+        let mut m1: TMap = Map::new();
+        let mut m2: TMap = Map::new();
+
+        apply_ops(&mut m1, &ops1.1);
+        apply_ops(&mut m2, &ops2.1);
+
+        let vclock = vclock::build_vclock(vclock_prim);
+
+        let mut m1_forget_after = m1.clone();
+        let m2_forget_after = m2.clone();
+
+        m1.forget(&vclock);
+        m2.forget(&vclock);
+
+        m1.merge(&m2);
+
+        m1_forget_after.merge(&m2_forget_after);
+        m1_forget_after.forget(&vclock);
+
+        TestResult::from_bool(m1_forget_after == m1)
     }
 }
