@@ -26,12 +26,12 @@ fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
                             key: inner_key,
                             op: mvreg::Op::Put { clock, val }
                         },
-                        1 => map::Op::Rm { clock, key: inner_key },
+                        1 => map::Op::Rm { clock, keyset: vec![inner_key].into_iter().collect() },
                         _ => map::Op::Nop
                     }
                 }
             },
-            1 => map::Op::Rm { clock, key },
+            1 => map::Op::Rm { clock, keyset: vec![key].into_iter().collect() },
             _ => map::Op::Nop
         };
         ops.push(op);
@@ -211,7 +211,7 @@ fn test_concurrent_update_and_remove_add_bias() {
     
     let op1 = map::Op::Rm {
         clock: Dot::new(1, 1).into(),
-        key: 102
+        keyset: vec![102].into_iter().collect()
     };
     let op2 = m2.update(102, m2.get(&102).derive_add_ctx(2), |_, _| map::Op::Nop);
     
@@ -344,7 +344,7 @@ fn test_commute_quickcheck_bug() {
     let ops = vec![
         map::Op::Rm {
             clock: Dot::new(45, 1).into(),
-            key: 0
+            keyset: vec![0].into_iter().collect()
         },
         map::Op::Up {
             dot: Dot::new(45, 2),
