@@ -12,20 +12,20 @@ struct TestReg {
 fn test_apply() {
     let mut reg = MVReg::new();
     let clock = VClock::from(Dot::new(2, 1));
-    reg.apply(&Op::Put { clock: clock.clone(), val: 71 });
+    reg.apply(Op::Put { clock: clock.clone(), val: 71 });
     assert_eq!(reg.read().add_clock, clock);
     assert_eq!(reg.read().val, vec![71]);
 }
 
 #[test]
-fn test_set_should_not_mutate_reg() {
+fn test_write_should_not_mutate_reg() {
     let reg = MVReg::<u8, u8>::new();
     let ctx = reg.read().derive_add_ctx(1);
     let op = reg.write(32, ctx);
     assert_eq!(reg, MVReg::new());
     
     let mut reg = reg;
-    reg.apply(&op);
+    reg.apply(op);
     assert_eq!(reg.read().val, vec![32]);
     assert_eq!(reg.read().add_clock, VClock::from(Dot::new(1, 1)));
 }
@@ -35,8 +35,8 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
     // this is important to prevent because it breaks commutativity
     let mut r1: MVReg<u8, u8> = MVReg::new();
     let mut r2 = MVReg::new();
-    r1.apply(&r1.write(23, r1.read().derive_add_ctx(4)));
-    r2.apply(&r2.write(23, r2.read().derive_add_ctx(7)));
+    r1.apply(r1.write(23, r1.read().derive_add_ctx(4)));
+    r2.apply(r2.write(23, r2.read().derive_add_ctx(7)));
 
     r1.merge(&r2);
 
@@ -53,8 +53,8 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
     let mut r1: MVReg<u8, u8> = MVReg::new();
     let r2 = MVReg::new();
 
-    r1.apply(&r1.write(23, r1.read().derive_add_ctx(4)));
-    r1.apply(&r2.write(23, r2.read().derive_add_ctx(7)));
+    r1.apply(r1.write(23, r1.read().derive_add_ctx(4)));
+    r1.apply(r2.write(23, r2.read().derive_add_ctx(7)));
 
     assert_eq!(r1.read().val, vec![23, 23]);
     assert_eq!(
@@ -68,8 +68,8 @@ fn test_multi_val() {
     let mut r1 = MVReg::<u8, u8>::new();
     let mut r2 = MVReg::<u8, u8>::new();
 
-    r1.apply(&r1.write(32, r1.read().derive_add_ctx(1)));
-    r2.apply(&r2.write(82, r2.read().derive_add_ctx(2)));
+    r1.apply(r1.write(32, r1.read().derive_add_ctx(1)));
+    r2.apply(r2.write(82, r2.read().derive_add_ctx(2)));
 
     r1.merge(&r2);
     assert!(
@@ -85,10 +85,10 @@ fn test_op_commute_quickcheck1() {
     let op1 = Op::Put { clock: Dot::new(1, 1).into(), val: 1 };
     let op2 = Op::Put { clock: Dot::new(2, 1).into(), val: 2 };
 
-    reg2.apply(&op2);
-    reg2.apply(&op1);
-    reg1.apply(&op1);
-    reg1.apply(&op2);
+    reg2.apply(op2.clone());
+    reg2.apply(op1.clone());
+    reg1.apply(op1);
+    reg1.apply(op2);
 
     assert_eq!(reg1, reg2);
 }
@@ -101,8 +101,8 @@ fn ops_are_not_compatible(opss: &[&Vec<(u8, u8)>]) -> bool {
             let mut a_clock = VClock::new();
             let mut b_clock = VClock::new();
             for ((_, a_actor), (_, b_actor)) in a_ops.iter().zip(b_ops.iter()) {
-                a_clock.apply(&a_clock.inc(*a_actor));
-                b_clock.apply(&b_clock.inc(*b_actor));
+                a_clock.apply(a_clock.inc(*a_actor));
+                b_clock.apply(b_clock.inc(*b_actor));
 
                 if b_clock.get(&a_actor) == a_clock.get(&a_actor) {
                     // this check is a bit broad as it's not a failure
@@ -122,7 +122,7 @@ fn build_test_reg(prim_ops: Vec<(u8, u8)>) -> TestReg {
     for (val, actor) in prim_ops {
         let ctx = reg.read().derive_add_ctx(actor);
         let op = reg.write(val, ctx);
-        reg.apply(&op);
+        reg.apply(op.clone());
         ops.push(op);
     }
     TestReg { reg, ops }
@@ -132,7 +132,7 @@ quickcheck! {
     fn prop_set_with_ctx_from_read(r_ops: Vec<(u8, u8)>, a: u8) -> bool {
         let mut reg = build_test_reg(r_ops).reg;
         let write_ctx = reg.read().derive_add_ctx(a);
-        reg.apply(&reg.write(23, write_ctx));
+        reg.apply(reg.write(23, write_ctx));
 
         let next_read_ctx = reg.read();
         next_read_ctx.val == vec![23]
@@ -217,7 +217,7 @@ quickcheck! {
         let test = build_test_reg(r_ops);
         let mut r = test.reg;
         let r_snapshot = r.clone();
-        for op in test.ops.iter() {
+        for op in test.ops.into_iter() {
             r.apply(op);
         }
 
@@ -239,11 +239,11 @@ quickcheck! {
         let mut r1 = o1.reg;
         let mut r2 = o2.reg;
 
-        for op in o2.ops.iter() {
+        for op in o2.ops.into_iter() {
             r1.apply(op);
         }
         
-        for op in o1.ops.iter() {
+        for op in o1.ops.into_iter() {
             r2.apply(op);
         }
 
@@ -268,22 +268,22 @@ quickcheck! {
 
 
         // r1 <- r2
-        for op in o2.ops.iter() {
+        for op in o2.ops.into_iter() {
             r1.apply(op);
         }
 
         // (r1 <- r2) <- r3
-        for op in o3.ops.iter() {
+        for op in o3.ops.iter().cloned() {
             r1.apply(op);
         }
 
         // r2 <- r3
-        for op in o3.ops.iter() {
+        for op in o3.ops.into_iter() {
             r2.apply(op);
         }
 
         // (r2 <- r3) <- r1
-        for op in o1.ops.iter() {
+        for op in o1.ops.into_iter() {
             r2.apply(op);
         }
 

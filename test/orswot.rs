@@ -23,7 +23,7 @@ fn build_opvec(op_prims: Vec<(u8, u8, u8, u64)>) -> OpVec {
             },
             _ => {
                 Op::Rm {
-                    member,
+                    members: vec![member].into_iter().collect(),
                     clock: Dot { actor, counter }.into()
                 }
             }
@@ -48,7 +48,7 @@ quickcheck! {
             for op_pair in ops.ops.iter() {
                 let (actor, op) = op_pair;
                 let witness = &mut witnesses[(actor % i) as usize];
-                witness.apply(op);
+                witness.apply(op.clone());
             }
             let mut merged = Orswot::new();
             for witness in witnesses.iter() {
@@ -84,8 +84,8 @@ quickcheck! {
 fn weird_highlight_1() {
     let mut a = Orswot::<u8, u8>::new();
     let mut b = Orswot::<u8, u8>::new();
-    a.apply(&a.add(1, a.read().derive_add_ctx(1)));
-    b.apply(&b.add(2, b.read().derive_add_ctx(1)));
+    a.apply(a.add(1, a.read().derive_add_ctx(1)));
+    b.apply(b.add(2, b.read().derive_add_ctx(1)));
 
     a.merge(&b);
     assert!(a.read().val.is_empty());
@@ -100,8 +100,8 @@ fn adds_dont_destroy_causality() {
 
     let c_ctx = c.read();
 
-    c.apply(&c.add("element", c_ctx.derive_add_ctx(1)));
-    c.apply(&c.add("element", c_ctx.derive_add_ctx(2)));
+    c.apply(c.add("element", c_ctx.derive_add_ctx(1)));
+    c.apply(c.add("element", c_ctx.derive_add_ctx(2)));
 
     let c_element_ctx = c.contains(&"element".to_string());
 
@@ -112,9 +112,9 @@ fn adds_dont_destroy_causality() {
         vec![Dot::new(1, 1), Dot::new(2, 1)].into_iter().collect()
     );
 
-    a.apply(&a.add("element", a.read().derive_add_ctx(7)));
-    b.apply(&c.remove("element", c_element_ctx.derive_rm_ctx()));
-    a.apply(&a.add("element", a.read().derive_add_ctx(1)));
+    a.apply(a.add("element", a.read().derive_add_ctx(7)));
+    b.apply(c.rm("element", c_element_ctx.derive_rm_ctx()));
+    a.apply(a.add("element", a.read().derive_add_ctx(1)));
 
     a.merge(&b);
     assert_eq!(
@@ -131,14 +131,14 @@ fn merge_clocks_of_identical_entries() {
     let mut a = Orswot::<u8, u8>::new();
     let mut b = a.clone();
     // add element 1 with witnesses 3 and 7
-    a.apply(&a.add(1, a.read().derive_add_ctx(3)));
-    b.apply(&a.add(1, b.read().derive_add_ctx(7)));
+    a.apply(a.add(1, a.read().derive_add_ctx(3)));
+    b.apply(a.add(1, b.read().derive_add_ctx(7)));
     a.merge(&b);
     assert_eq!(a.read().val, vec![1].into_iter().collect());
 
     let mut final_clock = VClock::new();
-    final_clock.apply(&final_clock.inc(3));
-    final_clock.apply(&final_clock.inc(7));
+    final_clock.apply(final_clock.inc(3));
+    final_clock.apply(final_clock.inc(7));
     assert_eq!(a.contains(&1).val, true);
     assert_eq!(a.contains(&1).rm_clock, final_clock);
 }
@@ -149,17 +149,17 @@ fn test_disjoint_merge() {
     let mut a = Orswot::<u8, u8>::new();
     let mut b = a.clone();
 
-    a.apply(&a.add(0, a.read().derive_add_ctx(1)));
+    a.apply(a.add(0, a.read().derive_add_ctx(1)));
     assert_eq!(a.read().val, vec![0].into_iter().collect());
 
-    b.apply(&b.add(1, b.read().derive_add_ctx(2)));
+    b.apply(b.add(1, b.read().derive_add_ctx(2)));
     assert_eq!(b.read().val, vec![1].into_iter().collect());
 
     let mut c = a.clone();
     c.merge(&b);
     assert_eq!(c.read().val, vec![0, 1].into_iter().collect());
 
-    a.apply(&a.remove(0, a.contains(&0).derive_rm_ctx()));
+    a.apply(a.rm(0, a.contains(&0).derive_rm_ctx()));
 
     let mut d = a.clone();
     d.merge(&c);
@@ -174,21 +174,21 @@ fn test_no_dots_left_test() {
     let mut a = Orswot::<u8, u8>::new();
     let mut b = Orswot::<u8, u8>::new();
 
-    a.apply(&a.add(0, a.read().derive_add_ctx(1)));
-    b.apply(&b.add(0, b.read().derive_add_ctx(2)));
+    a.apply(a.add(0, a.read().derive_add_ctx(1)));
+    b.apply(b.add(0, b.read().derive_add_ctx(2)));
     let c = a.clone();
-    a.apply(&a.remove(0, a.contains(&0).derive_rm_ctx()));
+    a.apply(a.rm(0, a.contains(&0).derive_rm_ctx()));
 
     // replicate B to A, now A has B's 'Z'
     a.merge(&b);
     assert_eq!(a.read().val, vec![0].into_iter().collect());
 
     let mut expected_clock = VClock::new();
-    expected_clock.apply(&expected_clock.inc(1));
-    expected_clock.apply(&expected_clock.inc(2));
+    expected_clock.apply(expected_clock.inc(1));
+    expected_clock.apply(expected_clock.inc(2));
     assert_eq!(a.read().add_clock, expected_clock);
 
-    b.apply(&b.remove(0, b.contains(&0).derive_rm_ctx()));
+    b.apply(b.rm(0, b.contains(&0).derive_rm_ctx()));
     assert!(b.read().val.is_empty());
 
     // Replicate C to B, now B has A's old 'Z'
@@ -221,18 +221,18 @@ fn test_dead_node_update() {
     let a_op = a.add(0, a.read().derive_add_ctx(1));
     assert_eq!(a_op, Op::Add { dot: Dot::new(1, 1), member: 0 });
 
-    a.apply(&a_op);
+    a.apply(a_op);
     assert_eq!(a.contains(&0).rm_clock, VClock::from(Dot::new(1, 1)));
 
     let mut b = a.clone();
-    b.apply(&b.add(1, b.read().derive_add_ctx(2)));
+    b.apply(b.add(1, b.read().derive_add_ctx(2)));
     let bctx = b.read();
     assert_eq!(
         bctx.add_clock,
         vec![Dot::new(1, 1), Dot::new(2, 1)].into_iter().collect()
     );
 
-    a.apply(&a.remove(0, bctx.derive_rm_ctx()));
+    a.apply(a.rm(0, bctx.derive_rm_ctx()));
     assert_eq!(a.read().val, HashSet::new());
 }
 
@@ -241,7 +241,7 @@ fn test_reset_remove_semantics() {
     let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
 
     m1.apply(
-        &m1.update(
+        m1.update(
             101,
             m1.get(&101).derive_add_ctx(75),
             |set, ctx| set.add(1, ctx.clone())
@@ -250,9 +250,9 @@ fn test_reset_remove_semantics() {
 
     let mut m2 = m1.clone();
 
-    m1.apply(&m1.rm(101, m1.get(&101).derive_rm_ctx()));
+    m1.apply(m1.rm(101, m1.get(&101).derive_rm_ctx()));
     m2.apply(
-        &m2.update(
+        m2.update(
             101,
             m2.get(&101).derive_add_ctx(93),
             |set, ctx| set.add(2, ctx.clone())

@@ -22,12 +22,12 @@ impl<T: Debug + Clone> Val for T {}
 /// let r1_read_ctx = r1.read();
 /// let r2_read_ctx = r2.read();
 ///
-/// r1.apply(&r1.write("bob", r1_read_ctx.derive_add_ctx(123)));
+/// r1.apply(r1.write("bob", r1_read_ctx.derive_add_ctx(123)));
 ///
 /// let op = r2.write("alice", r2_read_ctx.derive_add_ctx(111));
-/// r2.apply(&op);
+/// r2.apply(op.clone());
 ///
-/// r1.apply(&op); // we replicate op to r1
+/// r1.apply(op); // we replicate op to r1
 ///
 /// // Since "bob" and "alice" were added concurrently, we see both on read
 /// assert_eq!(r1.read().val, vec!["bob".to_string(), "alice".to_string()]);
@@ -146,8 +146,8 @@ impl<V: Val, A: Actor> CvRDT for MVReg<V, A> {
 impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
     type Op = Op<V, A>;
 
-    fn apply(&mut self, op: &Self::Op) {
-        match op.clone() {
+    fn apply(&mut self, op: Self::Op) {
+        match op {
             Op::Put { clock, val } => {
                 if clock.is_empty() {
                     return;

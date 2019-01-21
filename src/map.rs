@@ -111,8 +111,8 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
 impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     type Op = Op<K, V, A>;
 
-    fn apply(&mut self, op: &Self::Op) {
-        match op.clone() {
+    fn apply(&mut self, op: Self::Op) {
+        match op {
             Op::Nop => { /* do nothing */ },
             Op::Rm { clock, keyset } => self.apply_keyset_rm(keyset, clock),
             Op::Up { dot, key, op } => {
@@ -127,10 +127,10 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
                         val: V::default()
                     });
 
-                entry.clock.apply(&dot);
-                entry.val.apply(&op);
+                entry.clock.apply(dot.clone());
+                entry.val.apply(op);
 
-                self.clock.apply(&dot);
+                self.clock.apply(dot);
                 self.apply_deferred();
             }
         }
@@ -358,7 +358,7 @@ mod test {
 
         assert_eq!(m.get(&0).val, None);
 
-        m.clock.apply(&m.clock.inc(1));
+        m.clock.apply(m.clock.inc(1));
 
         m.entries.insert(0, Entry {
             clock: m.clock.clone(),
@@ -398,13 +398,13 @@ mod test {
         let mut m1: TestMap = Map::new();
         let mut m2: TestMap = Map::new();
 
-        m1.apply(&op_actor1);
+        m1.apply(op_actor1.clone());
         assert_eq!(m1.clock, Dot::new(0, 3).into());
         assert_eq!(m1.entries[&9].clock, Dot::new(0, 3).into());
         assert_eq!(m1.entries[&9].val.deferred.len(), 0);
 
-        m2.apply(&op_1_actor2);
-        m2.apply(&op_2_actor2);
+        m2.apply(op_1_actor2.clone());
+        m2.apply(op_2_actor2.clone());
         assert_eq!(m2.clock, Dot::new(1, 1).into());
         assert_eq!(m2.entries.get(&9), None);
         assert_eq!(
@@ -413,11 +413,11 @@ mod test {
         );
         
         // m1 <- m2
-        m1.apply(&op_1_actor2);
-        m1.apply(&op_2_actor2);
+        m1.apply(op_1_actor2);
+        m1.apply(op_2_actor2);
         
         // m2 <- m1
-        m2.apply(&op_actor1);
+        m2.apply(op_actor1);
         
         // m1 <- m2 == m2 <- m1
         assert_eq!(m1, m2);

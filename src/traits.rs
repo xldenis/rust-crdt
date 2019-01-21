@@ -31,10 +31,10 @@ pub trait CmRDT {
     /// Applying ops in any of the valid orders will converge to the same CRDT state
     ///
     /// Op's must be idempotent, meaning any Op may be applied more than once.
-    type Op: Debug + Clone;
+    type Op: Debug;
 
     /// Apply an Op to the CRDT
-    fn apply(&mut self, op: &Self::Op);
+    fn apply(&mut self, op: Self::Op);
 }
 
 /// CRDT's are causal if they are built on top of vector clocks.
@@ -70,5 +70,5 @@ pub trait FunkyCmRDT {
     type Op: Debug + Clone;
 
     /// Apply an Op to the CRDT
-    fn apply(&mut self, op: &Self::Op) -> Result<(), Self::Error>;
+    fn apply(&mut self, op: Self::Op) -> Result<(), Self::Error>;
 }

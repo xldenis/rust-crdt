@@ -55,7 +55,7 @@ fn test_is_empty() {
     assert!(is_empty_read.val);
 
     m.apply(
-        &m.update(101, is_empty_read.derive_add_ctx(1), |map, ctx| {
+        m.update(101, is_empty_read.derive_add_ctx(1), |map, ctx| {
             map.update(110, ctx, |reg, ctx| reg.write(2, ctx))
         })
     );
@@ -93,7 +93,7 @@ fn test_update() {
     // update should not mutate the map
     assert_eq!(m, Map::new());
     
-    m.apply(&op);
+    m.apply(op);
     
     assert_eq!(
         m.get(&101).val
@@ -104,7 +104,7 @@ fn test_update() {
     
     // the map should give the latest val to the closure
     m.apply(
-        &m.update(101, m.get(&101).derive_add_ctx(1), |map, ctx| {
+        m.update(101, m.get(&101).derive_add_ctx(1), |map, ctx| {
             map.update(110, ctx, |reg, ctx| {
                 assert_eq!(reg.read().val, vec![2]);
                 reg.write(6, ctx)
@@ -127,11 +127,11 @@ fn test_remove() {
     
     let mut inner_map: Map<TKey, TVal, TActor> = Map::new();
     inner_map.apply(
-        &inner_map.update(110, add_ctx.clone(), |r, ctx| r.write(0, ctx))
+        inner_map.update(110, add_ctx.clone(), |r, ctx| r.write(0, ctx))
     );
     
     m.apply(
-        &m.update(
+        m.update(
             101,
             add_ctx.clone(),
             |m, ctx| m.update(110, ctx, |r, ctx| r.write(0, ctx))
@@ -141,7 +141,7 @@ fn test_remove() {
     assert_eq!(m.get(&101).val, Some(inner_map));
     assert_eq!(m.len().val, 1);
 
-    m.apply(&m.rm(101, m.get(&101).derive_rm_ctx()));
+    m.apply(m.rm(101, m.get(&101).derive_rm_ctx()));
 
     assert_eq!(m.get(&101).val, None);
     assert_eq!(m.len().val, 0);
@@ -152,7 +152,7 @@ fn test_reset_remove_semantics() {
     let mut m1 = TMap::new();
 
     m1.apply(
-        &m1.update(101, m1.get(&101).derive_add_ctx(74), |map, ctx| {
+        m1.update(101, m1.get(&101).derive_add_ctx(74), |map, ctx| {
             map.update(110, ctx, |reg, ctx| {
                 reg.write(32, ctx)
             })
@@ -161,10 +161,10 @@ fn test_reset_remove_semantics() {
     
     let mut m2 = m1.clone();
 
-    m1.apply(&m1.rm(101, m1.get(&101).derive_rm_ctx()));
+    m1.apply(m1.rm(101, m1.get(&101).derive_rm_ctx()));
     
     m2.apply(
-        &m2.update(101, m2.get(&101).derive_add_ctx(37), |map, ctx| {
+        m2.update(101, m2.get(&101).derive_add_ctx(37), |map, ctx| {
             map.update(220, ctx, |reg, ctx| {
                 reg.write(5, ctx)
             })
@@ -188,7 +188,7 @@ fn test_updating_with_current_clock_should_be_a_nop() {
     let mut m1: TMap = Map::new();
     
     m1.apply(
-        &map::Op::Up {
+        map::Op::Up {
             dot: Dot::new(1, 0),
             key: 0,
             op: map::Op::Up {
@@ -217,8 +217,8 @@ fn test_concurrent_update_and_remove_add_bias() {
     };
     let op2 = m2.update(102, m2.get(&102).derive_add_ctx(2), |_, _| map::Op::Nop);
     
-    m1.apply(&op1);
-    m2.apply(&op2);
+    m1.apply(op1.clone());
+    m2.apply(op2.clone());
     
     let mut m1_clone = m1.clone();
     let mut m2_clone = m2.clone();
@@ -226,8 +226,8 @@ fn test_concurrent_update_and_remove_add_bias() {
     m1_clone.merge(&m2);
     m2_clone.merge(&m1);
     
-    m1.apply(&op2);
-    m2.apply(&op1);
+    m1.apply(op2);
+    m2.apply(op1);
     
     assert_eq!(m1_clone, m2_clone);
     assert_eq!(m1, m2);
@@ -243,20 +243,20 @@ fn test_op_exchange_commutes_quickcheck1() {
     // we need a true causal register
     let mut m1: Map<u8, MVReg<u8, u8>, u8> = Map::new();
     let m1_op1 = m1.update(0, m1.get(&0).derive_add_ctx(1), |reg, ctx| reg.write(0, ctx));
-    m1.apply(&m1_op1);
+    m1.apply(m1_op1.clone());
     let m1_op2 = m1.rm(0, m1.get(&0).derive_rm_ctx());
-    m1.apply(&m1_op2);
+    m1.apply(m1_op2.clone());
     
     let mut m2: Map<u8, MVReg<u8, u8>, u8> = Map::new();
     let m2_op1 = m2.update(0, m2.get(&0).derive_add_ctx(2), |reg, ctx| reg.write(0, ctx));
-    m2.apply(&m2_op1);
+    m2.apply(m2_op1.clone());
     
     // m1 <- m2
-    m1.apply(&m2_op1);
+    m1.apply(m2_op1);
     
     // m2 <- m1
-    m2.apply(&m1_op1);
-    m2.apply(&m1_op2);
+    m2.apply(m1_op1);
+    m2.apply(m1_op2);
     
     assert_eq!(m1, m2);
 }
@@ -272,27 +272,27 @@ fn test_op_deferred_remove() {
         m1.get(&0).derive_add_ctx(1),
         |reg, ctx| reg.write(0, ctx)
     );
-    m1.apply(&m1_up1);
+    m1.apply(m1_up1.clone());
     
     let m1_up2 = m1.update(
         1,
         m1.get(&1).derive_add_ctx(1),
         |reg, ctx| reg.write(1, ctx)
     );
-    m1.apply(&m1_up2);
+    m1.apply(m1_up2.clone());
     
-    m2.apply(&m1_up1);
-    m2.apply(&m1_up2);
+    m2.apply(m1_up1.clone());
+    m2.apply(m1_up2.clone());
 
     let m2_rm = m2.rm(0, m2.get(&0).derive_rm_ctx());
-    m2.apply(&m2_rm);
+    m2.apply(m2_rm.clone());
     
     assert_eq!(m2.get(&0).val, None);
-    m3.apply(&m2_rm);
-    m3.apply(&m1_up1);
-    m3.apply(&m1_up2);
+    m3.apply(m2_rm.clone());
+    m3.apply(m1_up1);
+    m3.apply(m1_up2);
     
-    m1.apply(&m2_rm);
+    m1.apply(m2_rm);
     
     assert_eq!(m2.get(&0).val, None);
     assert_eq!(
@@ -312,18 +312,18 @@ fn test_merge_deferred_remove() {
     let mut m3: Map<u8, MVReg<u8, u8>, u8> = Map::new();
     
     m1.apply(
-        &m1.update(0, m1.get(&0).derive_add_ctx(1), |reg, ctx| {
+        m1.update(0, m1.get(&0).derive_add_ctx(1), |reg, ctx| {
             reg.write(0, ctx)
         })
     );
     m1.apply(
-        &m1.update(1, m1.get(&1).derive_add_ctx(1), |reg, ctx| {
+        m1.update(1, m1.get(&1).derive_add_ctx(1), |reg, ctx| {
             reg.write(1, ctx)
         })
     );
 
     m2.merge(&m1);
-    m2.apply(&m2.rm(0, m2.get(&0).derive_rm_ctx()));
+    m2.apply(m2.rm(0, m2.get(&0).derive_rm_ctx()));
     
     assert_eq!(m2.get(&0).val, None);
     m3.merge(&m2);
@@ -402,7 +402,7 @@ fn test_idempotent_quickcheck_bug1() {
 #[test]
 fn test_idempotent_quickcheck_bug2() {
     let mut m: TMap = Map::new();
-    m.apply(&map::Op::Up {
+    m.apply(map::Op::Up {
         dot: Dot::new(32, 5),
         key: 0,
         op: map::Op::Up {
@@ -424,7 +424,7 @@ fn test_idempotent_quickcheck_bug2() {
 #[test]
 fn test_nop_on_new_map_should_remain_a_new_map() {
     let mut map = TMap::new();
-    map.apply(&map::Op::Nop);
+    map.apply(map::Op::Nop);
     assert_eq!(map, TMap::new());
 }
 
@@ -449,8 +449,8 @@ fn test_op_exchange_same_as_merge_quickcheck1() {
     };
     let mut m1: TMap = Map::new();
     let mut m2: TMap = Map::new();
-    m1.apply(&op1);
-    m2.apply(&op2);
+    m1.apply(op1.clone());
+    m2.apply(op2.clone());
     
     let mut m1_merge = m1.clone();
     m1_merge.merge(&m2);
@@ -458,8 +458,8 @@ fn test_op_exchange_same_as_merge_quickcheck1() {
     let mut m2_merge = m2.clone();
     m2_merge.merge(&m1);
     
-    m1.apply(&op2);
-    m2.apply(&op1);
+    m1.apply(op2);
+    m2.apply(op1);
     
     
     assert_eq!(m1, m2);
@@ -511,7 +511,7 @@ fn test_idempotent_quickcheck1() {
 
 fn apply_ops(map: &mut TMap, ops: &[TOp]) {
     for op in ops.iter().cloned() {
-        map.apply(&op);
+        map.apply(op);
     }
 }
 

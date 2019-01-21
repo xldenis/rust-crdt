@@ -59,7 +59,7 @@ impl<A: Actor> Default for PNCounter<A> {
 impl<A: Actor> CmRDT for PNCounter<A> {
     type Op = Op<A>;
 
-    fn apply(&mut self, op: &Self::Op) {
+    fn apply(&mut self, op: Self::Op) {
         match op {
             Op { dot, dir: Dir::Pos } => self.p.apply(dot),
             Op { dot, dir: Dir::Neg } => self.n.apply(dot)

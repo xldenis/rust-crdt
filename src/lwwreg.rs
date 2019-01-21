@@ -60,8 +60,8 @@ impl<V: Val, M: Marker> FunkyCmRDT for LWWReg<V, M> {
     // the entire state as an Op
     type Op = Self;
 
-    fn apply(&mut self, op: &Self::Op) -> Result<()> {
-        self.merge(op)
+    fn apply(&mut self, op: Self::Op) -> Result<()> {
+        self.merge(&op)
     }
 }
 
