@@ -54,12 +54,6 @@ quickcheck! {
             for witness in witnesses.iter() {
                 merged.merge(&witness);
             }
-
-            // defer_plunger is used to merge deferred elements from the above.
-            // to illustrate why this is needed, check out `weird_highlight_3`
-            // below.
-            let defer_plunger = Orswot::new();
-            merged.merge(&defer_plunger);
             if let Some(ref prev_res) = result {
                 if prev_res != &merged {
                     println!("opvec: {:?}", ops);
@@ -134,6 +128,7 @@ fn merge_clocks_of_identical_entries() {
     a.apply(a.add(1, a.read().derive_add_ctx(3)));
     b.apply(a.add(1, b.read().derive_add_ctx(7)));
     a.merge(&b);
+
     assert_eq!(a.read().val, vec![1].into_iter().collect());
 
     let mut final_clock = VClock::new();

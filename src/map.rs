@@ -301,25 +301,17 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     /// Apply a set of key removals given a clock.
     fn apply_keyset_rm(&mut self, mut keyset: BTreeSet<K>, clock: VClock<A>) {
         for key in keyset.iter() {
-            let should_remove = if let Some(entry) = self.entries.get_mut(&key) {
+            if let Some(entry) = self.entries.get_mut(&key) {
                 entry.clock.forget(&clock);
                 if entry.clock.is_empty() {
                     // The entry clock says we have no info on this entry.
                     // So remove the entry
-                    true
+                    self.entries.remove(&key);
                 } else {
                     // The entry clock is not empty so this means we still
                     // have some information on this entry, keep it.
                     entry.val.forget(&clock);
-                    false
                 }
-            } else {
-                // there's nothing to remove!
-                false
-            };
-
-            if should_remove {
-                self.entries.remove(&key);
             }
         }
 
