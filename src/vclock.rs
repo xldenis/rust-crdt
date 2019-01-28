@@ -108,8 +108,8 @@ impl<A: Actor> Causal<A> for VClock<A> {
 impl<A: Actor> CmRDT for VClock<A> {
     type Op = Dot<A>;
 
-    fn apply(&mut self, dot: &Self::Op) {
-        self.apply_dot(dot.clone());
+    fn apply(&mut self, dot: Self::Op) {
+        self.apply_dot(dot);
     }
 }
 
@@ -175,13 +175,13 @@ impl<A: Actor> VClock<A> {
     ///
     /// // we must apply the op to the VClock to have
     /// // its edit take effect.
-    /// a.apply(&op);
+    /// a.apply(op.clone());
     /// assert_eq!(a.get(&"A".to_string()), 1);
     ///
     /// // Op's can be replicated to another node and
     /// // applied to the local state there.
     /// let mut other_node = VClock::new();
-    /// other_node.apply(&op);
+    /// other_node.apply(op);
     /// assert_eq!(other_node.get(&"A".to_string()), 1);
     /// ```
     pub fn inc(&self, actor: A) -> Dot<A> {
@@ -195,8 +195,8 @@ impl<A: Actor> VClock<A> {
     /// ```
     /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.apply(&a.inc("A".to_string()));
-    /// b.apply(&b.inc("B".to_string()));
+    /// a.apply(a.inc("A".to_string()));
+    /// b.apply(b.inc("B".to_string()));
     /// assert!(a.concurrent(&b));
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
@@ -247,8 +247,7 @@ impl<A: Actor> VClock<A> {
     /// assert_eq!(c.get(&43), 0);
     /// ```
     pub fn glb(&mut self, other: &VClock<A>) {
-        let empty = BTreeMap::new();
-        let forgeted = mem::replace(&mut self.dots, empty)
+        self.dots = mem::replace(&mut self.dots, BTreeMap::new())
             .into_iter()
             .filter_map(|(actor, count)| {
                 // Since an actor missing from the dots map has an implied
@@ -260,7 +259,6 @@ impl<A: Actor> VClock<A> {
                 }
             })
             .collect();
-        mem::replace(&mut self.dots, forgeted);
     }
 
     /// Returns an iterator over the dots in this vclock
@@ -303,7 +301,7 @@ impl<A: Actor> std::iter::FromIterator<Dot<A>> for VClock<A> {
         let mut clock = VClock::new();
 
         for dot in iter {
-            clock.apply(&dot);
+            clock.apply(dot);
         }
 
         clock
@@ -313,7 +311,7 @@ impl<A: Actor> std::iter::FromIterator<Dot<A>> for VClock<A> {
 impl<A: Actor> From<Dot<A>> for VClock<A> {
     fn from(dot: Dot<A>) -> Self {
         let mut clock = VClock::new();
-        clock.apply(&dot);
+        clock.apply(dot);
         clock
     }
 }

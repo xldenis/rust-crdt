@@ -1,8 +1,8 @@
-use std::cmp::Ordering;
-
 use crdts::*;
 
-fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
+use std::cmp::Ordering;
+
+pub fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
     let mut v = VClock::new();
     for actor in prims {
         v.apply_inc(actor);
@@ -79,6 +79,25 @@ quickcheck! {
         let mut subbed  = clock.clone();
         subbed.forget(&clock);
         subbed == VClock::new()
+    }
+
+    fn prop_forget_is_empty_implies_equal_or_greator(prims_a: Vec<u8>, prims_b: Vec<u8>) -> bool {
+        let mut a = build_vclock(prims_a);
+        let b = build_vclock(prims_b);
+
+        a.forget(&b);
+
+        if a.is_empty() {
+            match a.partial_cmp(&b) {
+                Some(Ordering::Less) | Some(Ordering::Equal) => true,
+                _ => false
+            }
+        } else {
+            match a.partial_cmp(&b) {
+                None | Some(Ordering::Greater) => true,
+                _ => false
+            }
+        }
     }
 }
 

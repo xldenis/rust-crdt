@@ -32,7 +32,7 @@ quickcheck! {
             for op in ops.iter() {
                 let index = op.dot.actor as usize % i as usize;
                 let witness = &mut witnesses[index];
-                witness.apply(op);
+                witness.apply(op.clone());
             }
             let mut merged = PNCounter::new();
             for witness in witnesses.iter() {

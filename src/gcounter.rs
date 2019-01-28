@@ -14,12 +14,12 @@ use crate::vclock::{VClock, Actor, Dot};
 /// let mut a = GCounter::new();
 /// let mut b = GCounter::new();
 ///
-/// a.apply(&a.inc("A".to_string()));
-/// b.apply(&b.inc("B".to_string()));
+/// a.apply(a.inc("A".to_string()));
+/// b.apply(b.inc("B".to_string()));
 ///
 /// assert_eq!(a.read(), b.read());
 ///
-/// a.apply(&a.inc("A".to_string()));
+/// a.apply(a.inc("A".to_string()));
 /// assert!(a.read() > b.read());
 /// ```
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
@@ -36,7 +36,7 @@ impl<A: Actor> Default for GCounter<A> {
 impl<A: Actor> CmRDT for GCounter<A> {
     type Op = Dot<A>;
 
-    fn apply(&mut self, op: &Self::Op) {
+    fn apply(&mut self, op: Self::Op) {
         self.inner.apply(op)
     }
 }

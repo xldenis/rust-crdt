@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::cmp::Ordering;
+use std::mem;
 
 use serde_derive::{Serialize, Deserialize};
 
@@ -57,7 +58,7 @@ pub enum Op<K: Key, V: Val<A>, A: Actor> {
         /// The clock under which we will perform this remove
         clock: VClock<A>,
         /// Key to remove
-        key: K
+        keyset: BTreeSet<K>
     },
     /// Update an entry in the map
     Up {
@@ -78,28 +79,30 @@ impl<K: Key, V: Val<A>, A: Actor> Default for Map<K, V, A> {
 
 impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     fn forget(&mut self, clock: &VClock<A>) {
-        let mut to_remove: Vec<K> = Vec::new();
-        for (key, entry) in self.entries.iter_mut() {
-            entry.clock.forget(&clock);
-            if entry.clock.is_empty() {
-                to_remove.push(key.clone());
-            } else {
+        self.entries = mem::replace(&mut self.entries, BTreeMap::new())
+            .into_iter()
+            .filter_map(|(key, mut entry)| {
+                entry.clock.forget(&clock);
                 entry.val.forget(&clock);
-            }
-        }
+                if entry.clock.is_empty() {
+                    None // remove this entry since its been forgotten
+                } else {
+                    Some((key, entry))
+                }
+            })
+            .collect();
 
-        for key in to_remove {
-            self.entries.remove(&key);
-        }
-
-        let mut deferred = HashMap::new();
-        for (mut rm_clock, key) in self.deferred.clone().into_iter() {
-            rm_clock.forget(&clock);
-            if !rm_clock.is_empty() {
-                deferred.insert(rm_clock, key);
-            }
-        }
-        self.deferred = deferred;
+        self.deferred = mem::replace(&mut self.deferred, HashMap::new())
+            .into_iter()
+            .filter_map(|(mut rm_clock, key)| {
+                rm_clock.forget(&clock);
+                if rm_clock.is_empty() {
+                    None // this deferred remove has been forgotten
+                } else {
+                    Some((rm_clock, key))
+                }
+            })
+            .collect();
 
         self.clock.forget(&clock);
     }
@@ -108,29 +111,26 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
 impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     type Op = Op<K, V, A>;
 
-    fn apply(&mut self, op: &Self::Op) {
-        match op.clone() {
-            Op::Nop => {/* do nothing */},
-            Op::Rm { clock, key } => {
-                self.apply_rm(key, &clock);
-            },
+    fn apply(&mut self, op: Self::Op) {
+        match op {
+            Op::Nop => { /* do nothing */ },
+            Op::Rm { clock, keyset } => self.apply_keyset_rm(keyset, clock),
             Op::Up { dot, key, op } => {
                 if self.clock.get(&dot.actor) >= dot.counter {
                     // we've seen this op already
                     return;
                 }
 
-                let mut entry = self.entries.remove(&key)
-                    .unwrap_or_else(|| Entry {
-                        clock: VClock::new(),
+                let entry = self.entries.entry(key)
+                    .or_insert_with(|| Entry {
+                        clock: VClock::default(),
                         val: V::default()
                     });
 
-                entry.clock.apply(&dot);
-                entry.val.apply(&op);
-                self.entries.insert(key.clone(), entry);
+                entry.clock.apply(dot.clone());
+                entry.val.apply(op);
 
-                self.clock.apply(&dot);
+                self.clock.apply(dot);
                 self.apply_deferred();
             }
         }
@@ -139,77 +139,86 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
 
 impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
     fn merge(&mut self, other: &Self) {
-        let mut other_remaining = other.entries.clone();
-        let mut keep = BTreeMap::new();
-        for (key, mut entry) in self.entries.clone().into_iter() {
-            match other.entries.get(&key) {
-                None => {
+        for (key, entry) in other.entries.iter() {
+            if let Some(our_entry) = self.entries.get_mut(&key) {
+                // SUBTLE: this entry is present in both maps, BUT that doesn't mean we
+                // shouldn't drop it!
+                let mut common = entry.clock.intersection(&our_entry.clock);
+                let mut e_clock = entry.clock.clone();
+                let mut oe_clock = our_entry.clock.clone();
+                e_clock.forget(&self.clock);
+                oe_clock.forget(&other.clock);
+
+                // Perfectly possible that an item in both sets should be dropped
+                common.merge(&e_clock);
+                common.merge(&oe_clock);
+                if common.is_empty() {
+                    // both maps had seen each others entry and removed them
+                    self.entries.remove(&key).unwrap();
+                } else {
+                    // we should not drop, as there is information still tracked in
+                    // the common clock.
+                    our_entry.val.merge(&entry.val);
+
+                    let mut information_that_was_deleted = entry.clock.clone();
+                    information_that_was_deleted.merge(&our_entry.clock);
+                    information_that_was_deleted.forget(&common);
+                    our_entry.val.forget(&information_that_was_deleted);
+                    our_entry.clock = common;
+                }
+            } else {
+                // we don't have this entry, is it because we:
+                //  1. have seen it and dropped it
+                //  2. have not seen it
+                if self.clock >= entry.clock {
+                    // We've seen this entry and dropped it, we won't add it back
+                } else {
+                    // We have not seen this version of this entry, so we add it.
+                    // but first, we have to remove the information on this entry
+                    // that we have seen and deleted
+                    let mut entry = entry.clone();
+                    entry.clock.forget(&self.clock);
+
+                    let mut information_we_deleted = self.clock.clone();
+                    information_we_deleted.forget(&entry.clock);
+                    entry.val.forget(&information_we_deleted);
+                    self.entries.insert(key.clone(), entry);
+                }
+            }
+        }
+
+        self.entries = mem::replace(&mut self.entries, BTreeMap::new())
+            .into_iter()
+            .filter_map(|(key, mut entry)| {
+                if !other.entries.contains_key(&key) {
                     // other doesn't contain this entry because it:
-                    //  1. has witnessed it and dropped it
-                    //  2. hasn't witnessed it
-                    entry.clock.forget(&other.clock);
-                    if entry.clock.is_empty() {
+                    //  1. has seen it and dropped it
+                    //  2. hasn't seen it
+                    if other.clock >= entry.clock {
                         // other has seen this entry and dropped it
+                        None
                     } else {
-                        // the other map has not seen this version of this entry, so add it
-                        let mut actors_who_have_deleted_this_entry = other.clock.clone();
-                        actors_who_have_deleted_this_entry.forget(&entry.clock);
-                        entry.val.forget(&actors_who_have_deleted_this_entry);
-                        keep.insert(key, entry);
+                        // the other map has not seen this version of this
+                        // entry, so add it. But first, we have to remove any
+                        // information that may have been known at some point
+                        // by the other map about this key and was removed.
+                        entry.clock.forget(&other.clock);
+                        let mut removed_information = other.clock.clone();
+                        removed_information.forget(&entry.clock);
+                        entry.val.forget(&removed_information);
+                        Some((key, entry))
                     }
+                } else {
+                    Some((key, entry))
                 }
-                Some(other_entry) => {
-                    // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
-                    // shouldn't drop it!
-                    let mut e_clock = entry.clock.clone();
-                    let mut oe_clock = other_entry.clock.clone();
-                    let mut common = e_clock.intersection(&oe_clock);
-                    e_clock.forget(&common);
-                    oe_clock.forget(&common);
-                    e_clock.forget(&other.clock);
-                    oe_clock.forget(&self.clock);
-
-                    // Perfectly possible that an item in both sets should be dropped
-                    common.merge(&e_clock);
-                    common.merge(&oe_clock);
-                    if !common.is_empty() {
-                        // we should not drop, as there are common clocks
-                        entry.val.merge(&other_entry.val);
-                        let mut actors_who_have_deleted_this_entry = entry.clock.clone();
-                        actors_who_have_deleted_this_entry.merge(&other_entry.clock);
-                        actors_who_have_deleted_this_entry.forget(&common);
-
-                        entry.val.forget(&actors_who_have_deleted_this_entry);
-                        entry.clock = common;
-                        keep.insert(key.clone(), entry);
-                    }
-                    // don't want to consider this again below
-                    other_remaining.remove(&key).unwrap();
-                }
-            }
-        }
-
-        for (key, mut entry) in other_remaining.into_iter() {
-            entry.clock.forget(&self.clock);
-            if !entry.clock.is_empty() {
-                // other has witnessed a novel addition, so add it
-                let mut actors_who_deleted_this_entry = self.clock.clone();
-                actors_who_deleted_this_entry.forget(&entry.clock);
-                entry.val.forget(&actors_who_deleted_this_entry);
-                keep.insert(key, entry);
-            }
-        }
+            })
+            .collect();
 
         // merge deferred removals
-        for (clock, deferred) in other.deferred.iter() {
-            for key in deferred {
-                self.apply_rm(key.clone(), &clock);
-            }
+        for (rm_clock, keys) in other.deferred.iter() {
+            self.apply_keyset_rm(keys.clone(), rm_clock.clone());
         }
 
-        self.entries = keep;
-
-        // merge vclocks
         self.clock.merge(&other.clock);
 
         self.apply_deferred();
@@ -276,37 +285,50 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
 
     /// Remove an entry from the Map
     pub fn rm(&self, key: impl Into<K>, ctx: RmCtx<A>) -> Op<K, V, A> {
-        Op::Rm { clock: ctx.clock, key: key.into() }
+        let mut keyset = BTreeSet::new();
+        keyset.insert(key.into());
+        Op::Rm { clock: ctx.clock, keyset: keyset }
     }
 
     /// apply the pending deferred removes 
     fn apply_deferred(&mut self) {
-        let deferred = self.deferred.clone();
-        self.deferred = HashMap::new();
+        let deferred = mem::replace(&mut self.deferred, HashMap::new());
         for (clock, keys) in deferred {
-            for key in keys {
-                self.apply_rm(key, &clock);
-            }
+            self.apply_keyset_rm(keys, clock);
         }
     }
 
-    /// Apply a key removal given a clock.
-    fn apply_rm(&mut self, key: K, clock: &VClock<A>) {
-        match clock.partial_cmp(&self.clock) {
-            None | Some(Ordering::Greater) => {
-                let deferred_set = self.deferred.entry(clock.clone())
-                    .or_default();
-                deferred_set.insert(key.clone());
-            },
-            _ => { /* we've seen this remove already */ }
+    /// Apply a set of key removals given a clock.
+    fn apply_keyset_rm(&mut self, mut keyset: BTreeSet<K>, clock: VClock<A>) {
+        for key in keyset.iter() {
+            if let Some(entry) = self.entries.get_mut(&key) {
+                entry.clock.forget(&clock);
+                if entry.clock.is_empty() {
+                    // The entry clock says we have no info on this entry.
+                    // So remove the entry
+                    self.entries.remove(&key);
+                } else {
+                    // The entry clock is not empty so this means we still
+                    // have some information on this entry, keep it.
+                    entry.val.forget(&clock);
+                }
+            }
         }
 
-        if let Some(mut existing_entry) = self.entries.remove(&key) {
-            existing_entry.clock.forget(&clock);
-            if !existing_entry.clock.is_empty() {
-                existing_entry.val.forget(&clock);
-                self.entries.insert(key, existing_entry);
-            }
+        // now we need to decide wether we should be keeping this
+        // remove Op around to remove entries we haven't seen yet.
+        match self.clock.partial_cmp(&clock) {
+            None | Some(Ordering::Less) => {
+                // this remove clock has information we don't have,
+                // we need to log this in our deferred remove map, so
+                // that we can delete keys that we haven't seen yet but
+                // have been seen by this clock
+                let deferred_set = self.deferred
+                    .entry(clock)
+                    .or_default();
+                deferred_set.append(&mut keyset);
+            },
+            _ => { /* we've seen all keys this clock has seen */ }
         }
     }
 }
@@ -328,7 +350,7 @@ mod test {
 
         assert_eq!(m.get(&0).val, None);
 
-        m.clock.apply(&m.clock.inc(1));
+        m.clock.apply(m.clock.inc(1));
 
         m.entries.insert(0, Entry {
             clock: m.clock.clone(),
@@ -357,24 +379,24 @@ mod test {
             key: 9,
             op: Op::Rm {
                 clock: Dot::new(1, 1).into(),
-                key: 0
+                keyset: vec![0].into_iter().collect()
             }
         };
         let op_2_actor2 = Op::Rm {
             clock: Dot::new(1, 2).into(),
-            key: 9
+            keyset: vec![9].into_iter().collect()
         };
         
         let mut m1: TestMap = Map::new();
         let mut m2: TestMap = Map::new();
 
-        m1.apply(&op_actor1);
+        m1.apply(op_actor1.clone());
         assert_eq!(m1.clock, Dot::new(0, 3).into());
         assert_eq!(m1.entries[&9].clock, Dot::new(0, 3).into());
         assert_eq!(m1.entries[&9].val.deferred.len(), 0);
 
-        m2.apply(&op_1_actor2);
-        m2.apply(&op_2_actor2);
+        m2.apply(op_1_actor2.clone());
+        m2.apply(op_2_actor2.clone());
         assert_eq!(m2.clock, Dot::new(1, 1).into());
         assert_eq!(m2.entries.get(&9), None);
         assert_eq!(
@@ -383,11 +405,11 @@ mod test {
         );
         
         // m1 <- m2
-        m1.apply(&op_1_actor2);
-        m1.apply(&op_2_actor2);
+        m1.apply(op_1_actor2);
+        m1.apply(op_2_actor2);
         
         // m2 <- m1
-        m2.apply(&op_actor1);
+        m2.apply(op_actor1);
         
         // m1 <- m2 == m2 <- m1
         assert_eq!(m1, m2);

@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 
 use serde_derive::{Serialize, Deserialize};
+
+use crate::traits::{CvRDT, CmRDT};
 
 /// A `GSet` is a grow-only set.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -14,28 +17,40 @@ impl<T: Ord> Default for GSet<T> {
     }
 }
 
-impl<T: Ord> GSet<T> {
-    /// Instantiates an empty `GSet`.
-    pub fn new() -> Self {
-        GSet { value: BTreeSet::new() }
-    }
-
+impl<T: Ord + Clone> CvRDT for GSet<T> {
     /// Merges another `GSet` into this one.
     ///
     /// # Examples
     ///
     /// ```
-    /// use crdts::GSet;
+    /// use crdts::{GSet, CvRDT, CmRDT};
     /// let (mut a, mut b) = (GSet::new(), GSet::new());
     /// a.insert(1);
     /// b.insert(2);
-    /// a.merge(b);
+    /// a.merge(&b);
     /// assert!(a.contains(&1));
     /// assert!(a.contains(&2));
     /// ```
-    pub fn merge(&mut self, other: GSet<T>) {
-        other.value.into_iter()
-            .for_each(|e| self.insert(e))
+    fn merge(&mut self, other: &Self) {
+        other.value.iter()
+            .for_each(|e| if !self.contains(e) {
+                self.insert(e.clone())
+            })
+    }
+}
+
+impl<T: Ord + Debug> CmRDT for GSet<T> {
+    type Op = T;
+
+    fn apply(&mut self, op: Self::Op) {
+        self.insert(op);
+    }
+}
+
+impl<T: Ord> GSet<T> {
+    /// Instantiates an empty `GSet`.
+    pub fn new() -> Self {
+        GSet { value: BTreeSet::new() }
     }
 
     /// Inserts an element into this `GSet`.

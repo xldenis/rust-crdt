@@ -6,7 +6,7 @@ fn main() {
     let mut friend_map: Map<String, Orswot<String, u8>, u8> = Map::new();
 
     friend_map.apply(
-        &friend_map.update(
+        friend_map.update(
             "bob",
             friend_map.len().derive_add_ctx(1),
             |set, ctx| set.add("janet", ctx)
@@ -17,7 +17,7 @@ fn main() {
 
     // the map on the 2nd devices adds 'erik' to `bob`'s friends
     friend_map_on_2nd_device.apply(
-        &friend_map_on_2nd_device.update(
+        friend_map_on_2nd_device.update(
             "bob",
             friend_map_on_2nd_device.len().derive_add_ctx(2),
             |set, c| set.add("erik", c)
@@ -27,7 +27,7 @@ fn main() {
     // Meanwhile, on the first device we remove
     // the entire 'bob' entry from the friend map.
     friend_map.apply(
-        &friend_map.rm(
+        friend_map.rm(
             "bob",
             friend_map.get(&"bob".to_string()).derive_rm_ctx()
         )

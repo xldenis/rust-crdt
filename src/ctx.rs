@@ -43,7 +43,7 @@ impl<V, A: Actor> ReadCtx<V, A> {
     pub fn derive_add_ctx(&self, actor: A) -> AddCtx<A> {
         let mut clock = self.add_clock.clone();
         let dot = clock.inc(actor);
-        clock.apply(&dot);
+        clock.apply(dot.clone());
         AddCtx { clock, dot }
     }
 
