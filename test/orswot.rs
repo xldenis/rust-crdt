@@ -54,6 +54,7 @@ quickcheck! {
             for witness in witnesses.iter() {
                 merged.merge(&witness);
             }
+
             if let Some(ref prev_res) = result {
                 if prev_res != &merged {
                     println!("opvec: {:?}", ops);

@@ -225,12 +225,6 @@ impl<M: Member, A: Actor> Orswot<M, A> {
                 } else {
                     self.deferred.insert(clock, members);
                 }
-                // let deferred_drops = self.deferred.entry(clock)
-                //     .or_default();
-                // for member in members {
-                //     deferred_drops.insert(member);
-                // }
-                // deferred_drops.extend(members);
             }
             _ => {/* we've already seen this remove */}
         }
