@@ -18,6 +18,7 @@ path = "test/test.rs"
 num-bigint = "0.2.1"
 serde = "1.0"
 serde_derive = "1.0"
+hashbrown = { version = "0.1.8", features = ["serde"] }
 
 [dev-dependencies]
 quickcheck = "0.6.2"

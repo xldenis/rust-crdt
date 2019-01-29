@@ -36,8 +36,8 @@ fn main() {
     assert!(friend_map.get(&"bob".to_string()).val.is_none());
 
     // once these two devices synchronize...
-    friend_map.merge(&friend_map_on_2nd_device);
-    friend_map_on_2nd_device.merge(&friend_map);
+    friend_map.merge(friend_map_on_2nd_device.clone());
+    friend_map_on_2nd_device.merge(friend_map.clone());
     assert_eq!(friend_map, friend_map_on_2nd_device);
     
     // ... we see that "bob" is present but only

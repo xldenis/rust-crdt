@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+use hashbrown::HashMap;
 use std::fmt::Debug;
 use std::cmp::Ordering;
 use std::mem;
@@ -138,55 +139,7 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
 }
 
 impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
-    fn merge(&mut self, other: &Self) {
-        for (key, entry) in other.entries.iter() {
-            if let Some(our_entry) = self.entries.get_mut(&key) {
-                // SUBTLE: this entry is present in both maps, BUT that doesn't mean we
-                // shouldn't drop it!
-                let mut common = entry.clock.intersection(&our_entry.clock);
-                let mut e_clock = entry.clock.clone();
-                let mut oe_clock = our_entry.clock.clone();
-                e_clock.forget(&self.clock);
-                oe_clock.forget(&other.clock);
-
-                // Perfectly possible that an item in both sets should be dropped
-                common.merge(&e_clock);
-                common.merge(&oe_clock);
-                if common.is_empty() {
-                    // both maps had seen each others entry and removed them
-                    self.entries.remove(&key).unwrap();
-                } else {
-                    // we should not drop, as there is information still tracked in
-                    // the common clock.
-                    our_entry.val.merge(&entry.val);
-
-                    let mut information_that_was_deleted = entry.clock.clone();
-                    information_that_was_deleted.merge(&our_entry.clock);
-                    information_that_was_deleted.forget(&common);
-                    our_entry.val.forget(&information_that_was_deleted);
-                    our_entry.clock = common;
-                }
-            } else {
-                // we don't have this entry, is it because we:
-                //  1. have seen it and dropped it
-                //  2. have not seen it
-                if self.clock >= entry.clock {
-                    // We've seen this entry and dropped it, we won't add it back
-                } else {
-                    // We have not seen this version of this entry, so we add it.
-                    // but first, we have to remove the information on this entry
-                    // that we have seen and deleted
-                    let mut entry = entry.clone();
-                    entry.clock.forget(&self.clock);
-
-                    let mut information_we_deleted = self.clock.clone();
-                    information_we_deleted.forget(&entry.clock);
-                    entry.val.forget(&information_we_deleted);
-                    self.entries.insert(key.clone(), entry);
-                }
-            }
-        }
-
+    fn merge(&mut self, other: Self) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
             .filter_map(|(key, mut entry)| {
@@ -214,12 +167,59 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
             })
             .collect();
 
-        // merge deferred removals
-        for (rm_clock, keys) in other.deferred.iter() {
-            self.apply_keyset_rm(keys.clone(), rm_clock.clone());
+        for (key, mut entry) in other.entries {
+            if let Some(our_entry) = self.entries.get_mut(&key) {
+                // SUBTLE: this entry is present in both maps, BUT that doesn't mean we
+                // shouldn't drop it!
+                let mut common = entry.clock.intersection(&our_entry.clock);
+                let mut e_clock = entry.clock.clone();
+                let mut oe_clock = our_entry.clock.clone();
+                e_clock.forget(&self.clock);
+                oe_clock.forget(&other.clock);
+
+                // Perfectly possible that an item in both sets should be dropped
+                common.merge(e_clock);
+                common.merge(oe_clock);
+                if common.is_empty() {
+                    // both maps had seen each others entry and removed them
+                    self.entries.remove(&key).unwrap();
+                } else {
+                    // we should not drop, as there is information still tracked in
+                    // the common clock.
+                    our_entry.val.merge(entry.val);
+
+                    let mut information_that_was_deleted = entry.clock.clone();
+                    information_that_was_deleted.merge(our_entry.clock.clone());
+                    information_that_was_deleted.forget(&common);
+                    our_entry.val.forget(&information_that_was_deleted);
+                    our_entry.clock = common;
+                }
+            } else {
+                // we don't have this entry, is it because we:
+                //  1. have seen it and dropped it
+                //  2. have not seen it
+                if self.clock >= entry.clock {
+                    // We've seen this entry and dropped it, we won't add it back
+                } else {
+                    // We have not seen this version of this entry, so we add it.
+                    // but first, we have to remove the information on this entry
+                    // that we have seen and deleted
+                    entry.clock.forget(&self.clock);
+
+                    let mut information_we_deleted = self.clock.clone();
+                    information_we_deleted.forget(&entry.clock);
+                    entry.val.forget(&information_we_deleted);
+                    self.entries.insert(key, entry);
+                }
+            }
         }
 
-        self.clock.merge(&other.clock);
+        // merge deferred removals
+        for (rm_clock, keys) in other.deferred {
+            self.apply_keyset_rm(keys, rm_clock);
+        }
+
+        self.clock.merge(other.clock);
 
         self.apply_deferred();
     }
@@ -447,7 +447,7 @@ mod test {
             deferred: HashMap::new()
         };
 
-        m1.merge(&m2);
+        m1.merge(m2.clone());
 
         assert_eq!(
             m1,
@@ -473,7 +473,7 @@ mod test {
             }
         );
         
-        m2.merge(&m1);
+        m2.merge(m1.clone());
 
         assert_eq!(m1, m2);
     }

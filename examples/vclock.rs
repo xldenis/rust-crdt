@@ -58,7 +58,7 @@ fn main() {
 
     // Bob decides to keep Alices string, he merges alices clock
     // into his to signify that he has seen her edits.
-    bobs_copy.clock.merge(&alices_copy.clock);
+    bobs_copy.clock.merge(alices_copy.clock.clone());
     bobs_copy.data = "letMein32".to_string();
 
     // looking once more at bob's clock we see it includes all

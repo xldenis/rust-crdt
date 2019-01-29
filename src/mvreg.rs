@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
+use std::mem;
 
 use serde_derive::{Serialize, Deserialize};
 
@@ -110,36 +111,47 @@ impl<V: Val, A: Actor> Default for MVReg<V, A> {
 }
 
 impl<V: Val, A: Actor> CvRDT for MVReg<V, A> {
-    fn merge(&mut self, other: &Self) {
-        let mut vals = Vec::new();
-        for (clock, val) in self.vals.iter() {
-            let num_dominating = other.vals
-                .iter()
-                .filter(|(c, _)| clock < c)
-                .count();
-            if num_dominating == 0 {
-                vals.push((clock.clone(), val.clone()));
-            }
-        }
-        for (clock, val) in other.vals.iter() {
-            let num_dominating = self.vals
-                .iter()
-                .filter(|(c, _)| clock < c)
-                .count();
-            if num_dominating == 0 {
-                let mut is_new = true;
-                for (existing_c, _) in vals.iter() {
-                    if existing_c == clock {
-                        is_new = false;
-                        break;
-                    }
-                }
-                if is_new {
-                    vals.push((clock.clone(), val.clone()));
-                }
-            }
-        }
-        self.vals = vals;
+    fn merge(&mut self, other: Self) {
+        self.vals = mem::replace(&mut self.vals, Vec::new())
+            .into_iter()
+            .filter(|(clock, val)| other.vals.iter().filter(|(c, _)| clock < c).count() == 0)
+            .collect();
+
+        // let mut vals = Vec::new();
+        // for (clock, val) in self.vals.iter() {
+        //     let num_dominating = other.vals
+        //         .iter()
+        //         .filter(|(c, _)| clock < c)
+        //         .count();
+        //     if num_dominating == 0 {
+        //         vals.push((clock, val));
+        //     }
+        // }
+        self.vals.extend(
+            other.vals.into_iter()
+                .filter(|(clock, val)| self.vals.iter().filter(|(c, _)| clock < c).count() == 0)
+                .filter(|(clock, _)| self.vals.iter().all(|(c, _)| clock != c))
+                .collect::<Vec<_>>()
+        );
+        // for (clock, val) in other.vals.iter() {
+        //     let num_dominating = self.vals
+        //         .iter()
+        //         .filter(|(c, _)| clock < c)
+        //         .count();
+        //     if num_dominating == 0 {
+        //         let mut is_new = true;
+        //         for (existing_c, _) in vals.iter() {
+        //             if existing_c == clock {
+        //                 is_new = false;
+        //                 break;
+        //             }
+        //         }
+        //         if is_new {
+        //             vals.push((clock.clone(), val.clone()));
+        //         }
+        //     }
+        // }
+        // self.vals = vals;
     }
 }
 
@@ -210,7 +222,7 @@ impl<V: Val, A: Actor> MVReg<V, A> {
     fn clock(&self) -> VClock<A> {
         self.vals.iter()
             .fold(VClock::new(), |mut accum_clock, (c, _)| {
-                accum_clock.merge(&c);
+                accum_clock.merge(c.clone());
                 accum_clock
             })
     }
