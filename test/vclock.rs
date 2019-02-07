@@ -126,7 +126,7 @@ fn test_merge() {
         .into_iter()
         .collect();
 
-    a.merge(&b);
+    a.merge(b);
     
     let expected: VClock<u8> = vec![Dot::new(1, 1), Dot::new(3, 3), Dot::new(4, 4)]
         .into_iter()
@@ -143,7 +143,7 @@ fn test_merge_less_left() {
     b.apply_dot(Dot::new(6, 6));
     b.apply_dot(Dot::new(7, 7));
 
-    a.merge(&b);
+    a.merge(b);
     assert_eq!(a.get(&5), 5);
     assert_eq!(a.get(&6), 6);
     assert_eq!(a.get(&7), 7);
@@ -157,7 +157,7 @@ fn test_merge_less_right() {
 
     b.apply_dot(Dot::new(5, 5));
 
-    a.merge(&b);
+    a.merge(b);
     assert_eq!(a.get(&5), 5);
     assert_eq!(a.get(&6), 6);
     assert_eq!(a.get(&7), 7);
@@ -172,7 +172,7 @@ fn test_merge_same_id() {
     b.apply_dot(Dot::new(1, 1));
     b.apply_dot(Dot::new(3, 1));
 
-    a.merge(&b);
+    a.merge(b);
     assert_eq!(a.get(&1), 1);
     assert_eq!(a.get(&2), 1);
     assert_eq!(a.get(&3), 1);

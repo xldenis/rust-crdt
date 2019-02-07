@@ -68,9 +68,9 @@ impl<A: Actor> CmRDT for PNCounter<A> {
 }
 
 impl<A: Actor> CvRDT for PNCounter<A> {
-    fn merge(&mut self, other: &Self) {
-        self.p.merge(&other.p);
-        self.n.merge(&other.n);
+    fn merge(&mut self, other: Self) {
+        self.p.merge(other.p);
+        self.n.merge(other.n);
     }
 }
 

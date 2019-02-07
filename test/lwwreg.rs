@@ -61,12 +61,12 @@ quickcheck! {
         let mut r1_snapshot = r1.clone();
 
         // (r1 ^ r2) ^ r3
-        assert!(r1.merge(&r2).is_ok());
-        assert!(r1.merge(&r3).is_ok());
+        assert!(r1.merge(r2.clone()).is_ok());
+        assert!(r1.merge(r3.clone()).is_ok());
 
         // r1 ^ (r2 ^ r3)
-        assert!(r2.merge(&r3).is_ok());
-        assert!(r1_snapshot.merge(&r2).is_ok());
+        assert!(r2.merge(r3).is_ok());
+        assert!(r1_snapshot.merge(r2).is_ok());
         
         // (r1 ^ r2) ^ r3 = r1 ^ (r2 ^ r3)
         TestResult::from_bool(r1 == r1_snapshot)
@@ -82,10 +82,10 @@ quickcheck! {
         let r1_snapshot = r1.clone();
 
         // r1 ^ r2
-        assert!(r1.merge(&r2).is_ok());
+        assert!(r1.merge(r2.clone()).is_ok());
 
         // r2 ^ r1
-        assert!(r2.merge(&r1_snapshot).is_ok());
+        assert!(r2.merge(r1_snapshot).is_ok());
 
         // r1 ^ r2 = r2 ^ r1
         TestResult::from_bool(r1 == r2)
@@ -96,7 +96,7 @@ quickcheck! {
         let r_snapshot = r.clone();
 
         // r ^ r
-        assert!(r.merge(&r_snapshot).is_ok());
+        assert!(r.merge(r_snapshot.clone()).is_ok());
         // r ^ r = r
         r == r_snapshot
     }

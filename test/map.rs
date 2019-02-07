@@ -173,8 +173,8 @@ fn test_reset_remove_semantics() {
     
     let m1_snapshot = m1.clone();
     
-    m1.merge(&m2);
-    m2.merge(&m1_snapshot);
+    m1.merge(m2.clone());
+    m2.merge(m1_snapshot);
     assert_eq!(m1, m2);
     
     let inner_map = m1.get(&101).val.unwrap();
@@ -223,8 +223,8 @@ fn test_concurrent_update_and_remove_add_bias() {
     let mut m1_clone = m1.clone();
     let mut m2_clone = m2.clone();
     
-    m1_clone.merge(&m2);
-    m2_clone.merge(&m1);
+    m1_clone.merge(m2.clone());
+    m2_clone.merge(m1.clone());
     
     m1.apply(op2);
     m2.apply(op1);
@@ -322,13 +322,13 @@ fn test_merge_deferred_remove() {
         })
     );
 
-    m2.merge(&m1);
+    m2.merge(m1.clone());
     m2.apply(m2.rm(0, m2.get(&0).derive_rm_ctx()));
     
     assert_eq!(m2.get(&0).val, None);
-    m3.merge(&m2);
-    m3.merge(&m1);
-    m1.merge(&m2);
+    m3.merge(m2.clone());
+    m3.merge(m1.clone());
+    m1.merge(m2.clone());
     
     assert_eq!(m2.get(&0).val, None);
     assert_eq!(
@@ -365,8 +365,8 @@ fn test_commute_quickcheck_bug() {
     let m_snapshot = m.clone();
     
     let mut empty_m = Map::new();
-    m.merge(&empty_m);
-    empty_m.merge(&m_snapshot);
+    m.merge(empty_m.clone());
+    empty_m.merge(m_snapshot);
     
     assert_eq!(m, empty_m);
 }
@@ -394,7 +394,7 @@ fn test_idempotent_quickcheck_bug1() {
     apply_ops(&mut m, &ops);
     
     let m_snapshot = m.clone();
-    m.merge(&m_snapshot);
+    m.merge(m_snapshot.clone());
     
     assert_eq!(m, m_snapshot);
 }
@@ -415,7 +415,7 @@ fn test_idempotent_quickcheck_bug2() {
     let m_snapshot = m.clone();
     
     // m ^ m
-    m.merge(&m_snapshot);
+    m.merge(m_snapshot.clone());
     
     // m ^ m = m
     assert_eq!(m, m_snapshot);
@@ -453,10 +453,10 @@ fn test_op_exchange_same_as_merge_quickcheck1() {
     m2.apply(op2.clone());
     
     let mut m1_merge = m1.clone();
-    m1_merge.merge(&m2);
+    m1_merge.merge(m2.clone());
     
     let mut m2_merge = m2.clone();
-    m2_merge.merge(&m1);
+    m2_merge.merge(m1.clone());
     
     m1.apply(op2);
     m2.apply(op1);
@@ -503,7 +503,7 @@ fn test_idempotent_quickcheck1() {
     let m_snapshot = m.clone();
     
     // m ^ m
-    m.merge(&m_snapshot);
+    m.merge(m_snapshot.clone());
     
     // m ^ m = m
     assert_eq!(m, m_snapshot);
@@ -535,7 +535,7 @@ quickcheck! {
         apply_ops(&mut m2, &ops2.1);
         
         let mut m_merged = m1.clone();
-        m_merged.merge(&m2);
+        m_merged.merge(m2.clone());
         
         apply_ops(&mut m1, &ops2.1);
         apply_ops(&mut m2, &ops1.1);
@@ -674,12 +674,12 @@ quickcheck! {
         let mut m1_snapshot = m1.clone();
         
         // (m1 ^ m2) ^ m3
-        m1.merge(&m2);
-        m1.merge(&m3);
+        m1.merge(m2.clone());
+        m1.merge(m3.clone());
         
         // m1 ^ (m2 ^ m3)
-        m2.merge(&m3);
-        m1_snapshot.merge(&m2);
+        m2.merge(m3);
+        m1_snapshot.merge(m2);
         
         // (m1 ^ m2) ^ m3 = m1 ^ (m2 ^ m3)
         TestResult::from_bool(m1 == m1_snapshot)
@@ -704,10 +704,10 @@ quickcheck! {
         
         let m1_snapshot = m1.clone();
         // m1 ^ m2
-        m1.merge(&m2);
+        m1.merge(m2.clone());
         
         // m2 ^ m1
-        m2.merge(&m1_snapshot);
+        m2.merge(m1_snapshot);
         
         // m1 ^ m2 = m2 ^ m1
         TestResult::from_bool(m1 == m2)
@@ -732,10 +732,10 @@ quickcheck! {
         apply_ops(&mut m2, &ops2.1);
 
         // m1 ^ m2
-        m1.merge(&m2);
+        m1.merge(m2.clone());
         
         // m2 ^ m1
-        m2.merge(&m1);
+        m2.merge(m1.clone());
         
         // m1 ^ m2 = m2 ^ m1
         TestResult::from_bool(m1 == m2)
@@ -751,7 +751,7 @@ quickcheck! {
         let m_snapshot = m.clone();
         
         // m ^ m
-        m.merge(&m_snapshot);
+        m.merge(m_snapshot.clone());
         
         // m ^ m = m
         m == m_snapshot
@@ -811,9 +811,9 @@ quickcheck! {
         m1.forget(&vclock);
         m2.forget(&vclock);
 
-        m1.merge(&m2);
+        m1.merge(m2);
 
-        m1_forget_after.merge(&m2_forget_after);
+        m1_forget_after.merge(m2_forget_after);
         m1_forget_after.forget(&vclock);
 
         TestResult::from_bool(m1_forget_after == m1)

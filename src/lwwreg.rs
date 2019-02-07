@@ -47,10 +47,10 @@ impl<V: Val, M: Marker> FunkyCvRDT for LWWReg<V, M> {
     /// let mut l1 = LWWReg { val: 1, marker: 2 };
     /// let l2 = LWWReg { val: 3, marker: 2 };
     /// // errors!
-    /// assert!(l1.merge(&l2).is_err());
+    /// assert!(l1.merge(l2).is_err());
     /// ```
-    fn merge(&mut self, other: &Self) -> Result<()> {
-        self.update(other.val.clone(), other.marker.clone())
+    fn merge(&mut self, LWWReg { val, marker }: Self) -> Result<()> {
+        self.update(val, marker)
     }
 }
 
@@ -61,7 +61,7 @@ impl<V: Val, M: Marker> FunkyCmRDT for LWWReg<V, M> {
     type Op = Self;
 
     fn apply(&mut self, op: Self::Op) -> Result<()> {
-        self.merge(&op)
+        self.merge(op)
     }
 }
 

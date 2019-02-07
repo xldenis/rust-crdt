@@ -36,7 +36,7 @@ quickcheck! {
             }
             let mut merged = PNCounter::new();
             for witness in witnesses.iter() {
-                merged.merge(&witness);
+                merged.merge(witness.clone());
             }
 
             results.insert(merged.read());

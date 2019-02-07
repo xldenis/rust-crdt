@@ -114,9 +114,9 @@ impl<A: Actor> CmRDT for VClock<A> {
 }
 
 impl<A: Actor> CvRDT for VClock<A> {
-    fn merge(&mut self, other: &VClock<A>) {
-        for (actor, counter) in other.dots.iter() {
-            self.apply_dot(Dot::new(actor.clone(), *counter));
+    fn merge(&mut self, other: VClock<A>) {
+        for (actor, counter) in other.dots {
+            self.apply_dot(Dot::new(actor, counter));
         }
     }
 }

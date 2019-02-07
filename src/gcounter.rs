@@ -42,8 +42,8 @@ impl<A: Actor> CmRDT for GCounter<A> {
 }
 
 impl<A: Actor> CvRDT for GCounter<A> {
-    fn merge(&mut self, other: &Self) {
-        self.inner.merge(&other.inner);
+    fn merge(&mut self, other: Self) {
+        self.inner.merge(other.inner);
     }
 }
 

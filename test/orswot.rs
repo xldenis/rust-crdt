@@ -1,7 +1,7 @@
 extern crate crdts;
 extern crate rand;
 
-use std::collections::HashSet;
+use hashbrown::HashSet;
 use crdts::{*, orswot::Op};
 
 const ACTOR_MAX: u8 = 11;
@@ -51,15 +51,14 @@ quickcheck! {
                 witness.apply(op.clone());
             }
             let mut merged = Orswot::new();
-            for witness in witnesses.iter() {
-                merged.merge(&witness);
+            for witness in witnesses {
+                merged.merge(witness);
             }
 
             if let Some(ref prev_res) = result {
                 if prev_res != &merged {
                     println!("opvec: {:?}", ops);
                     println!("result: {:?}", result);
-                    println!("witnesses: {:?}", witnesses);
                     println!("merged: {:?}", merged);
                     return false;
                 };
@@ -82,7 +81,7 @@ fn weird_highlight_1() {
     a.apply(a.add(1, a.read().derive_add_ctx(1)));
     b.apply(b.add(2, b.read().derive_add_ctx(1)));
 
-    a.merge(&b);
+    a.merge(b);
     assert!(a.read().val.is_empty());
 }
 
@@ -111,7 +110,7 @@ fn adds_dont_destroy_causality() {
     b.apply(c.rm("element", c_element_ctx.derive_rm_ctx()));
     a.apply(a.add("element", a.read().derive_add_ctx(1)));
 
-    a.merge(&b);
+    a.merge(b);
     assert_eq!(
         a.read().val,
         vec!["element".to_string()].into_iter().collect()
@@ -128,7 +127,7 @@ fn merge_clocks_of_identical_entries() {
     // add element 1 with witnesses 3 and 7
     a.apply(a.add(1, a.read().derive_add_ctx(3)));
     b.apply(a.add(1, b.read().derive_add_ctx(7)));
-    a.merge(&b);
+    a.merge(b);
 
     assert_eq!(a.read().val, vec![1].into_iter().collect());
 
@@ -152,13 +151,13 @@ fn test_disjoint_merge() {
     assert_eq!(b.read().val, vec![1].into_iter().collect());
 
     let mut c = a.clone();
-    c.merge(&b);
+    c.merge(b);
     assert_eq!(c.read().val, vec![0, 1].into_iter().collect());
 
     a.apply(a.rm(0, a.contains(&0).derive_rm_ctx()));
 
     let mut d = a.clone();
-    d.merge(&c);
+    d.merge(c);
     assert_eq!(d.read().val, vec![1].into_iter().collect());
 }
 
@@ -176,7 +175,7 @@ fn test_no_dots_left_test() {
     a.apply(a.rm(0, a.contains(&0).derive_rm_ctx()));
 
     // replicate B to A, now A has B's 'Z'
-    a.merge(&b);
+    a.merge(b.clone());
     assert_eq!(a.read().val, vec![0].into_iter().collect());
 
     let mut expected_clock = VClock::new();
@@ -188,13 +187,13 @@ fn test_no_dots_left_test() {
     assert!(b.read().val.is_empty());
 
     // Replicate C to B, now B has A's old 'Z'
-    b.merge(&c);
+    b.merge(c.clone());
     assert_eq!(b.read().val, vec![0].into_iter().collect());
 
     // Merge everything, without the fix You end up with 'Z' present,
     // with no dots
-    b.merge(&a);
-    b.merge(&c);
+    b.merge(a);
+    b.merge(c);
     assert!(b.read().val.is_empty());
 }
 
@@ -261,8 +260,8 @@ fn test_reset_remove_semantics() {
         vec![1, 2].into_iter().collect()
     );
 
-    m1.merge(&m2);
-    m2.merge(&m1);
+    m1.merge(m2.clone());
+    m2.merge(m1.clone());
 
     assert_eq!(m1, m2);
     assert_eq!(

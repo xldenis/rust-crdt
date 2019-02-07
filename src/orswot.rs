@@ -1,6 +1,6 @@
 /// Observed-Remove Set With Out Tombstones (ORSWOT), ported directly from `riak_dt`.
 
-use std::collections::{HashMap, HashSet};
+use hashbrown::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::cmp::Ordering;
@@ -22,7 +22,7 @@ impl<T: Debug + Clone + Hash + Eq> Member for T {}
 pub struct Orswot<M: Member, A: Actor> {
     pub(crate) clock: VClock<A>,
     pub(crate) entries: HashMap<M, VClock<A>>,
-    pub(crate) deferred: HashMap<VClock<A>, HashSet<M>>,
+    pub(crate) deferred: hashbrown::HashMap<VClock<A>, HashSet<M>>,
 }
 
 /// Op's define an edit to an Orswot, Op's must be replayed in the exact order
@@ -80,46 +80,7 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
 
 impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
     /// Merge combines another `Orswot` with this one.
-    fn merge(&mut self, other: &Self) {
-        for (entry, clock) in other.entries.iter() {
-            if let Some(our_clock) = self.entries.get_mut(&entry) {
-                // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
-                // shouldn't drop it!
-                let mut common = clock.intersection(&our_clock);
-                let mut e_clock = clock.clone();
-                let mut oe_clock = our_clock.clone();
-                e_clock.forget(&self.clock);
-                oe_clock.forget(&other.clock);
-
-                // Perfectly possible that an item in both sets should be dropped
-                common.merge(&e_clock);
-                common.merge(&oe_clock);
-                if common.is_empty() {
-                    // both maps had seen each others entry and removed them
-                    self.entries.remove(&entry).unwrap();
-                } else {
-                    // we should not drop, as there is information still tracked in
-                    // the common clock.
-                    *our_clock = common;
-                }
-            } else {
-                // we don't have this entry, is it because we:
-                //  1. have seen it and dropped it
-                //  2. have not seen it
-                if &self.clock >= clock {
-                    // We've seen this entry and dropped it, we won't add it back
-                } else {
-                    // We have not seen this version of this entry, so we add it.
-                    // but first, we have to remove the information on this entry
-                    // that we have seen and deleted
-                    let entry = entry.clone();
-                    let mut clock = clock.clone();
-                    clock.forget(&self.clock);
-                    self.entries.insert(entry, clock);
-                }
-            }
-        }
-
+    fn merge(&mut self, other: Self) {
         self.entries = mem::replace(&mut self.entries, HashMap::new())
             .into_iter()
             .filter_map(|(entry, mut clock)| {
@@ -143,13 +104,50 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
                 }
             })
             .collect();
+        
+        for (entry, mut clock) in other.entries {
+            if let Some(our_clock) = self.entries.get_mut(&entry) {
+                // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
+                // shouldn't drop it!
+                let mut common = clock.intersection(&our_clock);
+                let mut e_clock = clock.clone();
+                let mut oe_clock = our_clock.clone();
+                e_clock.forget(&self.clock);
+                oe_clock.forget(&other.clock);
 
-        // merge deferred removals
-        for (rm_clock, members) in other.deferred.iter() {
-            self.apply_rm(members.clone(), rm_clock.clone());
+                // Perfectly possible that an item in both sets should be dropped
+                common.merge(e_clock);
+                common.merge(oe_clock);
+                if common.is_empty() {
+                    // both maps had seen each others entry and removed them
+                    self.entries.remove(&entry).unwrap();
+                } else {
+                    // we should not drop, as there is information still tracked in
+                    // the common clock.
+                    *our_clock = common;
+                }
+            } else {
+                // we don't have this entry, is it because we:
+                //  1. have seen it and dropped it
+                //  2. have not seen it
+                if self.clock >= clock {
+                    // We've seen this entry and dropped it, we won't add it back
+                } else {
+                    // We have not seen this version of this entry, so we add it.
+                    // but first, we have to remove the information on this entry
+                    // that we have seen and deleted
+                    clock.forget(&self.clock);
+                    self.entries.insert(entry, clock);
+                }
+            }
         }
 
-        self.clock.merge(&other.clock);
+        // merge deferred removals
+        for (rm_clock, members) in other.deferred {
+            self.apply_rm(members, rm_clock);
+        }
+
+        self.clock.merge(other.clock);
 
         self.apply_deferred();
     }
@@ -287,9 +285,9 @@ mod tests {
         b.apply(b.rm("element 9", RmCtx { clock: Dot::new(4, 4).into() }));
 
         let mut merged = Orswot::new();
-        merged.merge(&a);
-        merged.merge(&b);
-        merged.merge(&Orswot::new());
+        merged.merge(a);
+        merged.merge(b);
+        merged.merge(Orswot::new());
         assert_eq!(merged.deferred.len(), 2);
     }
 
@@ -314,13 +312,13 @@ mod tests {
         assert_eq!(b.deferred.len(), 1);
 
         // ensure that the deferred elements survive across a merge
-        c.merge(&b);
+        c.merge(b);
         assert_eq!(c.deferred.len(), 1);
 
         // after merging the set with deferred elements with the set that contains
         // an inferior member, ensure that the member is no longer visible and
         // the deferred set still contains this info
-        a.merge(&c);
+        a.merge(c);
         assert!(a.read().val.is_empty());
     }
 
@@ -345,15 +343,15 @@ mod tests {
         // Replicate B to A, so now A has a 0
         // the one with a Dot of {b,1} and clock
         // of [{a, 1}, {b, 1}]
-        a.merge(&b);
+        a.merge(b.clone());
 
         b.apply(b.rm(0, b.contains(&0).derive_rm_ctx()));
 
         // Both C and A have a '0', but when they merge, there should be
         // no '0' as C's has been removed by A and A's has been removed by
         // C.
-        a.merge(&b);
-        a.merge(&c);
+        a.merge(b);
+        a.merge(c);
         assert!(a.read().val.is_empty());
     }
 }

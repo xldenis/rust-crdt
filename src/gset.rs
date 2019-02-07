@@ -27,15 +27,13 @@ impl<T: Ord + Clone> CvRDT for GSet<T> {
     /// let (mut a, mut b) = (GSet::new(), GSet::new());
     /// a.insert(1);
     /// b.insert(2);
-    /// a.merge(&b);
+    /// a.merge(b);
     /// assert!(a.contains(&1));
     /// assert!(a.contains(&2));
     /// ```
-    fn merge(&mut self, other: &Self) {
-        other.value.iter()
-            .for_each(|e| if !self.contains(e) {
-                self.insert(e.clone())
-            })
+    fn merge(&mut self, other: Self) {
+        other.value.into_iter()
+            .for_each(|e| self.insert(e))
     }
 }
 

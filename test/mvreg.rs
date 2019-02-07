@@ -38,7 +38,7 @@ fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
     r1.apply(r1.write(23, r1.read().derive_add_ctx(4)));
     r2.apply(r2.write(23, r2.read().derive_add_ctx(7)));
 
-    r1.merge(&r2);
+    r1.merge(r2);
 
     assert_eq!(r1.read().val, vec![23, 23]);
     assert_eq!(
@@ -71,7 +71,7 @@ fn test_multi_val() {
     r1.apply(r1.write(32, r1.read().derive_add_ctx(1)));
     r2.apply(r2.write(82, r2.read().derive_add_ctx(2)));
 
-    r1.merge(&r2);
+    r1.merge(r2);
     assert!(
         r1.read().val == vec![32, 82] || r1.read().val == vec![82, 32]
     );
@@ -142,7 +142,7 @@ quickcheck! {
         let mut r = build_test_reg(r_ops).reg;
         let r_snapshot = r.clone();
 
-        r.merge(&r_snapshot);
+        r.merge(r_snapshot.clone());
 
         assert_eq!(r, r_snapshot);
         true
@@ -161,8 +161,8 @@ quickcheck! {
         let mut r2 = r2.reg;
 
         let r1_snapshot = r1.clone();
-        r1.merge(&r2);
-        r2.merge(&r1_snapshot);
+        r1.merge(r2.clone());
+        r2.merge(r1_snapshot);
 
         assert_eq!(r1, r2);
         TestResult::from_bool(true)
@@ -182,16 +182,16 @@ quickcheck! {
         let r1_snapshot = r1.clone();
         
         // r1 ^ r2
-        r1.merge(&r2);
+        r1.merge(r2.clone());
 
         // (r1 ^ r2) ^ r3
-        r1.merge(&r3);
+        r1.merge(r3.clone());
 
         // r2 ^ r3
-        r2.merge(&r3);
+        r2.merge(r3);
 
         // r1 ^ (r2 ^ r3)
-        r2.merge(&r1_snapshot);
+        r2.merge(r1_snapshot);
 
         assert_eq!(r1, r2);
         TestResult::from_bool(true)
