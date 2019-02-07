@@ -18,7 +18,7 @@ impl<T: Debug + Clone> Val for T {}
 ///
 /// ```rust
 /// use crdts::{CmRDT, MVReg, Dot, VClock};
-/// let mut r1 = MVReg::<String, u8>::new();
+/// let mut r1 = MVReg::new();
 /// let mut r2 = r1.clone();
 /// let r1_read_ctx = r1.read();
 /// let r2_read_ctx = r2.read();
@@ -31,7 +31,7 @@ impl<T: Debug + Clone> Val for T {}
 /// r1.apply(op); // we replicate op to r1
 ///
 /// // Since "bob" and "alice" were added concurrently, we see both on read
-/// assert_eq!(r1.read().val, vec!["bob".to_string(), "alice".to_string()]);
+/// assert_eq!(r1.read().val, vec!["bob", "alice"]);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MVReg<V: Val, A: Actor> {
@@ -170,18 +170,17 @@ impl<V: Val, A: Actor> MVReg<V, A> {
     }
 
     /// Set the value of the register
-    pub fn write(&self, val: impl Into<V>, ctx: AddCtx<A>) -> Op<V, A> {
-        Op::Put { clock: ctx.clock, val: val.into() }
+    pub fn write(&self, val: V, ctx: AddCtx<A>) -> Op<V, A> {
+        Op::Put { clock: ctx.clock, val }
     }
 
     /// Consumes the register and returns the values
     pub fn read(&self) -> ReadCtx<Vec<V>, A> {
         let clock = self.clock().clone();
-        let concurrent_vals = self.vals
-            .iter()
-            .cloned()
+        let concurrent_vals = self.vals.iter().cloned()
             .map(|(_, v)| v)
             .collect();
+
         ReadCtx {
             add_clock: clock.clone(),
             rm_clock: clock,

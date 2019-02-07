@@ -2,7 +2,6 @@
 
 extern crate crdts;
 
-mod lwwreg;
 mod map;
 mod mvreg;
 mod orswot;

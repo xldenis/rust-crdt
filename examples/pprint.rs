@@ -9,7 +9,7 @@ fn main() {
     vclock.apply(Dot::new(87132, 32));
     println!("vclock:\t{}", vclock);
 
-    let mut reg = MVReg::<String, u128>::new();
+    let mut reg = MVReg::new();
 
     let op1 = reg.write("some val", reg.read().derive_add_ctx(9_742_820));
     let op2 = reg.write("some other val", reg.read().derive_add_ctx(648_572));
