@@ -1,4 +1,4 @@
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::vclock::{Actor, VClock, Dot};
 use crate::traits::CmRDT;

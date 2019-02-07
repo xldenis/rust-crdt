@@ -1,5 +1,5 @@
 use num_bigint::BigUint;
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::traits::{CvRDT, CmRDT};
 use crate::vclock::{VClock, Actor, Dot};
