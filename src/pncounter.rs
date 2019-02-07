@@ -1,9 +1,9 @@
 use num_bigint::BigInt;
 use serde::{Serialize, Deserialize};
 
-use crate::vclock::{Actor, Dot};
+use crate::vclock::{VClock, Actor, Dot};
 use crate::gcounter::GCounter;
-use crate::traits::{CvRDT, CmRDT};
+use crate::traits::{CvRDT, CmRDT, Causal};
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate
@@ -18,10 +18,10 @@ use crate::traits::{CvRDT, CmRDT};
 /// use crdts::{PNCounter, CmRDT};
 ///
 /// let mut a = PNCounter::new();
-/// a.apply_inc("A".to_string());
-/// a.apply_inc("A".to_string());
-/// a.apply_dec("A".to_string());
-/// a.apply_inc("A".to_string());
+/// a.apply(a.inc("A".to_string()));
+/// a.apply(a.inc("A".to_string()));
+/// a.apply(a.dec("A".to_string()));
+/// a.apply(a.inc("A".to_string()));
 ///
 /// assert_eq!(a.read(), 2.into());
 /// ```
@@ -74,6 +74,13 @@ impl<A: Actor> CvRDT for PNCounter<A> {
     }
 }
 
+impl<A: Actor> Causal<A> for PNCounter<A> {
+    fn forget(&mut self, clock: &VClock<A>) {
+        self.p.forget(&clock);
+        self.n.forget(&clock);
+    }
+}
+
 impl<A: Actor> PNCounter<A> {
     /// Produce a new `PNCounter`.
     pub fn new() -> Self {
@@ -91,16 +98,6 @@ impl<A: Actor> PNCounter<A> {
     /// Generate an Op to increment the counter.
     pub fn dec(&self, actor: A) -> Op<A> {
         Op { dot: self.n.inc(actor), dir: Dir::Neg }
-    }
-
-    /// Increment counter.
-    pub fn apply_inc(&mut self, actor: A) {
-        self.p.apply_inc(actor)
-    }
-
-    /// Decrement counter.
-    pub fn apply_dec(&mut self, actor: A) {
-        self.n.apply_inc(actor)
     }
 
     /// Return the current value of this counter (P-N).

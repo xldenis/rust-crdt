@@ -56,15 +56,15 @@ fn test_basic() {
     let mut a = PNCounter::new();
     assert_eq!(a.read(), 0.into());
 
-    a.apply_inc("A".to_string());
+    a.apply(a.inc("A".to_string()));
     assert_eq!(a.read(), 1.into());
 
-    a.apply_inc("A".to_string());
+    a.apply(a.inc("A".to_string()));
     assert_eq!(a.read(), 2.into());
 
-    a.apply_dec("A".to_string());
+    a.apply(a.dec("A".to_string()));
     assert_eq!(a.read(), 1.into());
 
-    a.apply_inc("A".to_string());
+    a.apply(a.inc("A".to_string()));
     assert_eq!(a.read(), 2.into());
 }

@@ -3,12 +3,12 @@
 //! # Examples
 //!
 //! ```
-//! use crdts::{Dot, VClock};
+//! use crdts::{Dot, VClock, CmRDT};
 //!
 //! let mut a = VClock::new();
 //! let mut b = VClock::new();
-//! a.apply_dot(Dot::new("A".to_string(), 2));
-//! b.apply_dot(Dot::new("A".to_string(), 1));
+//! a.apply(Dot::new("A", 2));
+//! b.apply(Dot::new("A", 1));
 //! assert!(a > b);
 //! ```
 
@@ -108,6 +108,21 @@ impl<A: Actor> Causal<A> for VClock<A> {
 impl<A: Actor> CmRDT for VClock<A> {
     type Op = Dot<A>;
 
+    /// Monotonically adds the given actor version to
+    /// this VClock.
+    ///
+    /// # Examples
+    /// ```
+    /// use crdts::{VClock, Dot, CmRDT};
+    /// let mut v = VClock::new();
+    ///
+    /// v.apply(Dot::new("A", 2));
+    /// 
+    /// // now all dots applied to `v` from actor `A` where
+    /// // the counter is not bigger than 2 are nops.
+    /// v.apply(Dot::new("A", 0));
+    /// assert_eq!(v.get(&"A"), 2);
+    /// ```
     fn apply(&mut self, dot: Self::Op) {
         self.apply_dot(dot);
     }
@@ -128,38 +143,10 @@ impl<A: Actor> VClock<A> {
     }
 
     /// Apply a Dot to this vclock.
-    ///
-    /// # Examples
-    /// ```
-    /// use crdts::*;
-    /// let mut v = VClock::new();
-    ///
-    /// v.apply_dot(Dot::new("A".to_string(), 2));
-    /// 
-    /// // now all dots applied to `v` from actor `A` where
-    /// // the counter is not bigger than 2 are nops.
-    /// v.apply_dot(Dot::new("A".to_string(), 0));
-    /// assert_eq!(v.get(&"A".to_string()), 2);
-    /// ```
-    pub fn apply_dot(&mut self, dot: Dot<A>) {
+    fn apply_dot(&mut self, dot: Dot<A>) {
         if self.get(&dot.actor) < dot.counter {
             self.dots.insert(dot.actor, dot.counter);
         }
-    }
-
-    /// Immediately increment an actor's counter.
-    ///
-    /// # Examples
-    /// ```
-    /// use crdts::VClock;
-    /// let mut v = VClock::new();
-    ///
-    /// v.apply_inc("A".to_string());
-    /// assert_eq!(v.get(&"A".to_string()), 1);
-    /// ```
-    pub fn apply_inc(&mut self, actor: A) {
-        let inc_counter = self.get(&actor) + 1;
-        self.apply_dot(Dot::new(actor, inc_counter));
     }
 
     /// Generate Op to increment an actor's counter.
@@ -170,19 +157,19 @@ impl<A: Actor> VClock<A> {
     /// let mut a = VClock::new();
     ///
     /// // `a.inc()` does not mutate the vclock!
-    /// let op = a.inc("A".to_string());
+    /// let op = a.inc("A");
     /// assert_eq!(a, VClock::new());
     ///
     /// // we must apply the op to the VClock to have
     /// // its edit take effect.
     /// a.apply(op.clone());
-    /// assert_eq!(a.get(&"A".to_string()), 1);
+    /// assert_eq!(a.get(&"A"), 1);
     ///
     /// // Op's can be replicated to another node and
     /// // applied to the local state there.
     /// let mut other_node = VClock::new();
     /// other_node.apply(op);
-    /// assert_eq!(other_node.get(&"A".to_string()), 1);
+    /// assert_eq!(other_node.get(&"A"), 1);
     /// ```
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
@@ -195,8 +182,8 @@ impl<A: Actor> VClock<A> {
     /// ```
     /// use crdts::{VClock, CmRDT};
     /// let (mut a, mut b) = (VClock::new(), VClock::new());
-    /// a.apply(a.inc("A".to_string()));
-    /// b.apply(b.inc("B".to_string()));
+    /// a.apply(a.inc("A"));
+    /// b.apply(b.inc("B"));
     /// assert!(a.concurrent(&b));
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
@@ -232,16 +219,16 @@ impl<A: Actor> VClock<A> {
     /// Reduces this VClock to the greatest-lower-bound of the given
     /// VClock and itsef, as an example see the following code.
     /// ``` rust
-    /// use crdts::{VClock, Dot, Causal};
+    /// use crdts::{VClock, Dot, Causal, CmRDT};
     /// let mut c = VClock::new();
-    /// c.apply_dot(Dot::new(23, 6));
-    /// c.apply_dot(Dot::new(89, 14));
+    /// c.apply(Dot::new(23, 6));
+    /// c.apply(Dot::new(89, 14));
     /// let c2 = c.clone();
     ///
     /// c.glb(&c2); // this is a no-op since `glb { c, c } = c`
     /// assert_eq!(c, c2);
     ///
-    /// c.apply_dot(Dot::new(43, 1));
+    /// c.apply(Dot::new(43, 1));
     /// assert_eq!(c.get(&43), 1);
     /// c.glb(&c2); // should remove the 43 => 1 entry
     /// assert_eq!(c.get(&43), 0);

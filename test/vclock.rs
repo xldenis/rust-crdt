@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 pub fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
     let mut v = VClock::new();
     for actor in prims {
-        v.apply_inc(actor);
+        v.apply(v.inc(actor));
     }
     v
 }
@@ -138,10 +138,10 @@ fn test_merge() {
 #[test]
 fn test_merge_less_left() {
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.apply_dot(Dot::new(5, 5));
+    a.apply(Dot::new(5, 5));
 
-    b.apply_dot(Dot::new(6, 6));
-    b.apply_dot(Dot::new(7, 7));
+    b.apply(Dot::new(6, 6));
+    b.apply(Dot::new(7, 7));
 
     a.merge(b);
     assert_eq!(a.get(&5), 5);
@@ -152,10 +152,10 @@ fn test_merge_less_left() {
 #[test]
 fn test_merge_less_right() {
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.apply_dot(Dot::new(6, 6));
-    a.apply_dot(Dot::new(7, 7));
+    a.apply(Dot::new(6, 6));
+    a.apply(Dot::new(7, 7));
 
-    b.apply_dot(Dot::new(5, 5));
+    b.apply(Dot::new(5, 5));
 
     a.merge(b);
     assert_eq!(a.get(&5), 5);
@@ -166,11 +166,11 @@ fn test_merge_less_right() {
 #[test]
 fn test_merge_same_id() {
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.apply_dot(Dot::new(1, 1));
-    a.apply_dot(Dot::new(2, 1));
+    a.apply(Dot::new(1, 1));
+    a.apply(Dot::new(2, 1));
 
-    b.apply_dot(Dot::new(1, 1));
-    b.apply_dot(Dot::new(3, 1));
+    b.apply(Dot::new(1, 1));
+    b.apply(Dot::new(3, 1));
 
     a.merge(b);
     assert_eq!(a.get(&1), 1);
@@ -183,10 +183,10 @@ fn test_vclock_ordering() {
     assert_eq!(VClock::<i8>::new(), VClock::new());
 
     let (mut a, mut b) = (VClock::new(), VClock::new());
-    a.apply_dot(Dot::new("A".to_string(), 1));
-    a.apply_dot(Dot::new("A".to_string(), 2));
-    a.apply_dot(Dot::new("A".to_string(), 0));
-    b.apply_dot(Dot::new("A".to_string(), 1));
+    a.apply(Dot::new("A".to_string(), 1));
+    a.apply(Dot::new("A".to_string(), 2));
+    a.apply(Dot::new("A".to_string(), 0));
+    b.apply(Dot::new("A".to_string(), 1));
 
     // a {A:2}
     // b {A:1}
@@ -195,7 +195,7 @@ fn test_vclock_ordering() {
     assert!(b < a);
     assert!(a != b);
 
-    b.apply_dot(Dot::new("A".to_string(), 3));
+    b.apply(Dot::new("A".to_string(), 3));
     // a {A:2}
     // b {A:3}
     // expect: b dominates
@@ -203,7 +203,7 @@ fn test_vclock_ordering() {
     assert!(a < b);
     assert!(a != b);
 
-    a.apply_dot(Dot::new("B".to_string(), 1));
+    a.apply(Dot::new("B".to_string(), 1));
     // a {A:2, B:1}
     // b {A:3}
     // expect: concurrent
@@ -211,7 +211,7 @@ fn test_vclock_ordering() {
     assert!(!(a > b));
     assert!(!(b > a));
 
-    a.apply_dot(Dot::new("A".to_string(), 3));
+    a.apply(Dot::new("A".to_string(), 3));
     // a {A:3, B:1}
     // b {A:3}
     // expect: a dominates
@@ -219,7 +219,7 @@ fn test_vclock_ordering() {
     assert!(b < a);
     assert!(a != b);
 
-    b.apply_dot(Dot::new("B".to_string(), 2));
+    b.apply(Dot::new("B".to_string(), 2));
     // a {A:3, B:1}
     // b {A:3, B:2}
     // expect: b dominates
@@ -227,7 +227,7 @@ fn test_vclock_ordering() {
     assert!(a < b);
     assert!(a != b);
 
-    a.apply_dot(Dot::new("B".to_string(), 2));
+    a.apply(Dot::new("B".to_string(), 2));
     // a {A:3, B:2}
     // b {A:3, B:2}
     // expect: equal
