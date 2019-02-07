@@ -76,10 +76,10 @@ quickcheck! {
 /// copies of the orswot, or elements will be deleted upon merge.
 #[test]
 fn weird_highlight_1() {
-    let mut a = Orswot::<u8, u8>::new();
-    let mut b = Orswot::<u8, u8>::new();
-    a.apply(a.add(1, a.read().derive_add_ctx(1)));
-    b.apply(b.add(2, b.read().derive_add_ctx(1)));
+    let mut a = Orswot::new();
+    let mut b = Orswot::new();
+    a.apply(a.add(1, a.read().derive_add_ctx("A")));
+    b.apply(b.add(2, b.read().derive_add_ctx("A")));
 
     a.merge(b);
     assert!(a.read().val.is_empty());
@@ -88,32 +88,32 @@ fn weird_highlight_1() {
 ///
 #[test]
 fn adds_dont_destroy_causality() {
-    let mut a = Orswot::<String, u8>::new();
+    let mut a = Orswot::new();
     let mut b = a.clone();
     let mut c = a.clone();
 
     let c_ctx = c.read();
 
-    c.apply(c.add("element", c_ctx.derive_add_ctx(1)));
-    c.apply(c.add("element", c_ctx.derive_add_ctx(2)));
+    c.apply(c.add("element", c_ctx.derive_add_ctx("A")));
+    c.apply(c.add("element", c_ctx.derive_add_ctx("B")));
 
-    let c_element_ctx = c.contains(&"element".to_string());
+    let c_element_ctx = c.contains(&"element");
 
     // If we want to remove this entry, the remove context
     // should descend from vclock { 1->1, 2->1 }
     assert_eq!(
         c_element_ctx.rm_clock,
-        vec![Dot::new(1, 1), Dot::new(2, 1)].into_iter().collect()
+        vec![Dot::new("A", 1), Dot::new("B", 1)].into_iter().collect()
     );
 
-    a.apply(a.add("element", a.read().derive_add_ctx(7)));
+    a.apply(a.add("element", a.read().derive_add_ctx("C")));
     b.apply(c.rm("element", c_element_ctx.derive_rm_ctx()));
-    a.apply(a.add("element", a.read().derive_add_ctx(1)));
+    a.apply(a.add("element", a.read().derive_add_ctx("A")));
 
     a.merge(b);
     assert_eq!(
         a.read().val,
-        vec!["element".to_string()].into_iter().collect()
+        vec!["element"].into_iter().collect()
     );
 }
 
@@ -122,18 +122,18 @@ fn adds_dont_destroy_causality() {
 // than merged.
 #[test]
 fn merge_clocks_of_identical_entries() {
-    let mut a = Orswot::<u8, u8>::new();
+    let mut a = Orswot::new();
     let mut b = a.clone();
     // add element 1 with witnesses 3 and 7
-    a.apply(a.add(1, a.read().derive_add_ctx(3)));
-    b.apply(a.add(1, b.read().derive_add_ctx(7)));
+    a.apply(a.add(1, a.read().derive_add_ctx("A")));
+    b.apply(a.add(1, b.read().derive_add_ctx("B")));
     a.merge(b);
 
     assert_eq!(a.read().val, vec![1].into_iter().collect());
 
     let mut final_clock = VClock::new();
-    final_clock.apply(final_clock.inc(3));
-    final_clock.apply(final_clock.inc(7));
+    final_clock.apply(final_clock.inc("A"));
+    final_clock.apply(final_clock.inc("B"));
     assert_eq!(a.contains(&1).val, true);
     assert_eq!(a.contains(&1).rm_clock, final_clock);
 }
@@ -141,13 +141,13 @@ fn merge_clocks_of_identical_entries() {
 // port from riak_dt
 #[test]
 fn test_disjoint_merge() {
-    let mut a = Orswot::<u8, u8>::new();
+    let mut a = Orswot::new();
     let mut b = a.clone();
 
-    a.apply(a.add(0, a.read().derive_add_ctx(1)));
+    a.apply(a.add(0, a.read().derive_add_ctx("A")));
     assert_eq!(a.read().val, vec![0].into_iter().collect());
 
-    b.apply(b.add(1, b.read().derive_add_ctx(2)));
+    b.apply(b.add(1, b.read().derive_add_ctx("B")));
     assert_eq!(b.read().val, vec![1].into_iter().collect());
 
     let mut c = a.clone();
@@ -166,11 +166,11 @@ fn test_disjoint_merge() {
 // you then store the value with an empty clock (derp).
 #[test]
 fn test_no_dots_left_test() {
-    let mut a = Orswot::<u8, u8>::new();
-    let mut b = Orswot::<u8, u8>::new();
+    let mut a = Orswot::new();
+    let mut b = Orswot::new();
 
-    a.apply(a.add(0, a.read().derive_add_ctx(1)));
-    b.apply(b.add(0, b.read().derive_add_ctx(2)));
+    a.apply(a.add(0, a.read().derive_add_ctx("A")));
+    b.apply(b.add(0, b.read().derive_add_ctx("B")));
     let c = a.clone();
     a.apply(a.rm(0, a.contains(&0).derive_rm_ctx()));
 
@@ -179,8 +179,8 @@ fn test_no_dots_left_test() {
     assert_eq!(a.read().val, vec![0].into_iter().collect());
 
     let mut expected_clock = VClock::new();
-    expected_clock.apply(expected_clock.inc(1));
-    expected_clock.apply(expected_clock.inc(2));
+    expected_clock.apply(expected_clock.inc("A"));
+    expected_clock.apply(expected_clock.inc("B"));
     assert_eq!(a.read().add_clock, expected_clock);
 
     b.apply(b.rm(0, b.contains(&0).derive_rm_ctx()));
@@ -212,19 +212,19 @@ fn test_no_dots_left_test() {
 // always happen, but may not. (ie, the test needs expanding)
 #[test]
 fn test_dead_node_update() {
-    let mut a = Orswot::<u8, u8>::new();
-    let a_op = a.add(0, a.read().derive_add_ctx(1));
-    assert_eq!(a_op, Op::Add { dot: Dot::new(1, 1), member: 0 });
+    let mut a = Orswot::new();
+    let a_op = a.add(0, a.read().derive_add_ctx("A"));
+    assert_eq!(a_op, Op::Add { dot: Dot::new("A", 1), member: 0 });
 
     a.apply(a_op);
-    assert_eq!(a.contains(&0).rm_clock, VClock::from(Dot::new(1, 1)));
+    assert_eq!(a.contains(&0).rm_clock, VClock::from(Dot::new("A", 1)));
 
     let mut b = a.clone();
-    b.apply(b.add(1, b.read().derive_add_ctx(2)));
+    b.apply(b.add(1, b.read().derive_add_ctx("B")));
     let bctx = b.read();
     assert_eq!(
         bctx.add_clock,
-        vec![Dot::new(1, 1), Dot::new(2, 1)].into_iter().collect()
+        vec![Dot::new("A", 1), Dot::new("B", 1)].into_iter().collect()
     );
 
     a.apply(a.rm(0, bctx.derive_rm_ctx()));
@@ -233,12 +233,12 @@ fn test_dead_node_update() {
 
 #[test]
 fn test_reset_remove_semantics() {
-    let mut m1: Map<u8, Orswot<u8, u8>, u8> = Map::new();
+    let mut m1: Map<u8, Orswot<u8, &str>, &str> = Map::new();
 
     m1.apply(
         m1.update(
             101,
-            m1.get(&101).derive_add_ctx(75),
+            m1.get(&101).derive_add_ctx("A"),
             |set, ctx| set.add(1, ctx.clone())
         )
     );
@@ -249,7 +249,7 @@ fn test_reset_remove_semantics() {
     m2.apply(
         m2.update(
             101,
-            m2.get(&101).derive_add_ctx(93),
+            m2.get(&101).derive_add_ctx("B"),
             |set, ctx| set.add(2, ctx.clone())
         )
     );
