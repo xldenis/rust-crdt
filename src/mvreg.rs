@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::{self, Debug, Display};
 use std::mem;
 
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::vclock::{VClock, Actor};
 use crate::ctx::{ReadCtx, AddCtx};

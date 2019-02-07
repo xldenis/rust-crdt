@@ -19,7 +19,7 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
 
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::traits::{CvRDT, CmRDT, Causal};
 

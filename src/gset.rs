@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::traits::{CvRDT, CmRDT};
 

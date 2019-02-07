@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::cmp::Ordering;
 use std::mem;
 
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::traits::{CvRDT, CmRDT, Causal};
 use crate::vclock::{VClock, Dot, Actor};

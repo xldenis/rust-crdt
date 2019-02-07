@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::cmp::Ordering;
 use std::mem;
 
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::traits::{Causal, CvRDT, CmRDT};
 use crate::vclock::{Dot, VClock, Actor};

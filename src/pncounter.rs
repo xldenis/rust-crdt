@@ -1,5 +1,5 @@
 use num_bigint::BigInt;
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 
 use crate::vclock::{Actor, Dot};
 use crate::gcounter::GCounter;
