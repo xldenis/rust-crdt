@@ -49,6 +49,7 @@ Looking over this partial order, we can derive a few other properties of CRDT's.
 #### Interacting with the CRDT's
 Working with a CRDT is a bit different from datastructures you may be used to. Since we may be acting on data that is concurrently being edited by others, we need to make sure that your local edits only effect the data that you've seen.
 
+##### Bad way of interacting with CRDT's
 For example, if you clear a `Map`, we want to be able to say that this clear operation will only effect entries in the map that you are aware of. If you are not tracking this causal history of your edits correctly, you could end up deleting data that you are not aware of. e.g. a good way to lose data would be to do something like this:
 1. you receive a `Map` CRDT from across the network.
 2. you read the `Map`'s key/value pairs and display them to the user.
@@ -57,16 +58,17 @@ For example, if you clear a `Map`, we want to be able to say that this clear ope
 
 At this point you've potentially cleared data that the user didn't want to clear. To fix this, we need to include a `causal` context with the clear operation. This causal context is a vector clock (VClock) that stores the version of the `Map` that was seen by this user when they decided to `Map::clear()`.
 
+##### Good way to interact with CRDT's
 Lets take a look at what interacting with CRDT's looks like in using `crdts`.
 
-1. First create an instance of the CRDT, we'll use the MVReg (Multi-Value Register) CRDT for this example. It allows us to store a value, when it receives conflicting `set` operations, it'll store all conflicting values.
+1. First create an instance of the CRDT, we'll use the MVReg (Multi-Value Register) CRDT for this example. It allows us to store a value and resolves conflicting values by keeping both.
 ``` rust
 let mut reg = MVReg::new();
 ```
 2. To set a value in your CRDT, you'll need to provide a context (even for the initial value), the only way to get a context is to first read from the CRDT.
 ``` rust
 let read_ctx = reg.read();
-assert_eq!(read_ctx.val, vec![]);
+assert_eq!(read_ctx.val, vec![]); // the registers is empty!
 ```
 3. Reading any state from a CRDT will produces a `ReadCtx`.to access the value from the `ReadCtx`, use the `.val` field. From the example above we see the register is currently not storing any values (empty `Vec`).
 
@@ -76,12 +78,12 @@ Now to make your edit to the `reg`, you'll derive the appropriate context for th
 let add_ctx = read_ctx.derive_add_ctx(123);
 let rm_ctx = read_ctx.derive_rm_ctx();
 
-reg.set("Value".to_string(), add_ctx);
-reg.clear(rm_ctx);
-assert_eq!(reg.read().val, vec!["Value".to_string()])
+reg.set("Value".to_string(), add_ctx);                // We set the value of the register using the Add context
+reg.clear(rm_ctx);                                    // We remove using the (stale) Rm context
+assert_eq!(reg.read().val, vec!["Value".to_string()]) // and we see that the MVReg::clear() did not remove the new value
 ```
 
-Now you may be wondering why we have a `"Value"` after we've cleared the register. The `"Value"` string was added with a context that included a new edit from actor `123`. The clear operation used an `RmCtx` that was derived from a read where we did not have this edit from `123`, only data that was seen at the time of the `read` is removed.
+Now you may be wondering why we have a `"Value"` after we've cleared the register. The `"Value"` string was added with an `AddContext` that included a marker showing that new information from actor `123` was present. The clear operation used an `RmCtx` that was derived from a read where we did not have this information from actor `123`, only data that was seen at the time of the `read` that the `RmCtx` was derived from is removed.
 
 Another trap you may fall into is reusing a context derived from one part of the CRDT to edit another part of the CRDT.
 Steps to lose data:
@@ -91,7 +93,7 @@ map.rm(&"key 2".to_string(), read_ctx.derive_rm_ctx());
 ```
 Now you're using an `RmCtx` derived from another key, this `RmCtx` should only be used to remove the same data that it read. Same goes for the `AddCtx`, it should only be used to overwrite data that it had been derived from.
 
-If you keep these things in mind, you should have a good time :)
+If you keep these things in mind, you'll have a good time :)
 
 ### Further reading
 If you want to learn about how CRDTs work, I suggest starting with the readme from [aphyr's meangirls](https://github.com/aphyr/meangirls) repo.

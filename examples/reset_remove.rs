@@ -5,10 +5,10 @@ use crdts::{CvRDT, CmRDT, Map, Orswot};
 fn main() {
     let mut friend_map: Map<&str, Orswot<&str, u8>, u8> = Map::new();
 
+    let read_ctx = friend_map.len(); // we read anything from the map to get a add context
     friend_map.apply(
         friend_map.update(
-            "bob",
-            friend_map.len().derive_add_ctx(1),
+            "bob", read_ctx.derive_add_ctx(1),
             |set, ctx| set.add("janet", ctx)
         )
     );
