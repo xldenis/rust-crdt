@@ -19,57 +19,57 @@ fn test_apply() {
 
 #[test]
 fn test_write_should_not_mutate_reg() {
-    let reg = MVReg::<u8, u8>::new();
-    let ctx = reg.read().derive_add_ctx(1);
+    let reg = MVReg::new();
+    let ctx = reg.read().derive_add_ctx("A");
     let op = reg.write(32, ctx);
     assert_eq!(reg, MVReg::new());
     
     let mut reg = reg;
     reg.apply(op);
     assert_eq!(reg.read().val, vec![32]);
-    assert_eq!(reg.read().add_clock, VClock::from(Dot::new(1, 1)));
+    assert_eq!(reg.read().add_clock, VClock::from(Dot::new("A", 1)));
 }
 
 #[test]
 fn test_concurrent_update_with_same_value_dont_collapse_on_merge() {
     // this is important to prevent because it breaks commutativity
-    let mut r1: MVReg<u8, u8> = MVReg::new();
+    let mut r1 = MVReg::new();
     let mut r2 = MVReg::new();
-    r1.apply(r1.write(23, r1.read().derive_add_ctx(4)));
-    r2.apply(r2.write(23, r2.read().derive_add_ctx(7)));
+    r1.apply(r1.write(23, r1.read().derive_add_ctx("A")));
+    r2.apply(r2.write(23, r2.read().derive_add_ctx("B")));
 
     r1.merge(r2);
 
     assert_eq!(r1.read().val, vec![23, 23]);
     assert_eq!(
         r1.read().add_clock,
-        vec![Dot::new(4, 1), Dot::new(7, 1)].into_iter().collect()
+        vec![Dot::new("A", 1), Dot::new("B", 1)].into_iter().collect()
     );
 }
 
 #[test]
 fn test_concurrent_update_with_same_value_dont_collapse_on_apply() {
     // this is important to prevent because it breaks commutativity
-    let mut r1: MVReg<u8, u8> = MVReg::new();
+    let mut r1 = MVReg::new();
     let r2 = MVReg::new();
 
-    r1.apply(r1.write(23, r1.read().derive_add_ctx(4)));
-    r1.apply(r2.write(23, r2.read().derive_add_ctx(7)));
+    r1.apply(r1.write(23, r1.read().derive_add_ctx("A")));
+    r1.apply(r2.write(23, r2.read().derive_add_ctx("B")));
 
     assert_eq!(r1.read().val, vec![23, 23]);
     assert_eq!(
         r1.read().add_clock,
-        vec![Dot::new(4, 1), Dot::new(7, 1)].into_iter().collect()
+        vec![Dot::new("A", 1), Dot::new("B", 1)].into_iter().collect()
     );
 }
 
 #[test]
 fn test_multi_val() {
-    let mut r1 = MVReg::<u8, u8>::new();
-    let mut r2 = MVReg::<u8, u8>::new();
+    let mut r1 = MVReg::new();
+    let mut r2 = MVReg::new();
 
-    r1.apply(r1.write(32, r1.read().derive_add_ctx(1)));
-    r2.apply(r2.write(82, r2.read().derive_add_ctx(2)));
+    r1.apply(r1.write(32, r1.read().derive_add_ctx("A")));
+    r2.apply(r2.write(82, r2.read().derive_add_ctx("B")));
 
     r1.merge(r2);
     assert!(
@@ -82,8 +82,8 @@ fn test_op_commute_quickcheck1() {
     let mut reg1 = MVReg::new();
     let mut reg2 = MVReg::new();
 
-    let op1 = Op::Put { clock: Dot::new(1, 1).into(), val: 1 };
-    let op2 = Op::Put { clock: Dot::new(2, 1).into(), val: 2 };
+    let op1 = Op::Put { clock: Dot::new("A", 1).into(), val: 1 };
+    let op2 = Op::Put { clock: Dot::new("B", 1).into(), val: 2 };
 
     reg2.apply(op2.clone());
     reg2.apply(op1.clone());

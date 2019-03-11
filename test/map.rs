@@ -43,25 +43,24 @@ fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
 
 #[test]
 fn test_new() {
-    let m: TMap = Map::new();
+    let m: Map<u8, MVReg<u8, _>, u8> = Map::new();
     assert_eq!(m.len().val, 0);
     assert!(m.is_empty().val);
 }
 
 #[test]
 fn test_is_empty() {
-    let mut m: TMap = Map::new();
+    let mut m: Map<&str, Map<&str, MVReg<&str, _>, _>, &str>  = Map::new();
     let is_empty_read = m.is_empty();
     assert!(is_empty_read.val);
 
     m.apply(
-        m.update(101, is_empty_read.derive_add_ctx(1), |map, ctx| {
-            map.update(110, ctx, |reg, ctx| reg.write(2, ctx))
+        m.update("user_32", is_empty_read.derive_add_ctx("A"), |map, ctx| {
+            map.update("name", ctx, |reg, ctx| reg.write("bob", ctx))
         })
     );
 
-    let is_empty_ctx = m.is_empty();
-    assert!(!is_empty_ctx.val);
+    assert!(!m.is_empty().val);
 }
 
 #[test]
@@ -402,6 +401,7 @@ fn test_idempotent_quickcheck_bug1() {
 #[test]
 fn test_idempotent_quickcheck_bug2() {
     let mut m: TMap = Map::new();
+
     m.apply(map::Op::Up {
         dot: Dot::new(32, 5),
         key: 0,

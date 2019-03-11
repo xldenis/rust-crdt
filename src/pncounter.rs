@@ -1,9 +1,9 @@
 use num_bigint::BigInt;
 use serde::{Serialize, Deserialize};
 
-use crate::vclock::{Actor, Dot};
+use crate::vclock::{VClock, Actor, Dot};
 use crate::gcounter::GCounter;
-use crate::traits::{CvRDT, CmRDT};
+use crate::traits::{CvRDT, CmRDT, Causal};
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate
@@ -18,10 +18,10 @@ use crate::traits::{CvRDT, CmRDT};
 /// use crdts::{PNCounter, CmRDT};
 ///
 /// let mut a = PNCounter::new();
-/// a.apply_inc("A".to_string());
-/// a.apply_inc("A".to_string());
-/// a.apply_dec("A".to_string());
-/// a.apply_inc("A".to_string());
+/// a.apply(a.inc("A"));
+/// a.apply(a.inc("A"));
+/// a.apply(a.dec("A"));
+/// a.apply(a.inc("A"));
 ///
 /// assert_eq!(a.read(), 2.into());
 /// ```
@@ -74,6 +74,13 @@ impl<A: Actor> CvRDT for PNCounter<A> {
     }
 }
 
+impl<A: Actor> Causal<A> for PNCounter<A> {
+    fn forget(&mut self, clock: &VClock<A>) {
+        self.p.forget(&clock);
+        self.n.forget(&clock);
+    }
+}
+
 impl<A: Actor> PNCounter<A> {
     /// Produce a new `PNCounter`.
     pub fn new() -> Self {
@@ -93,20 +100,85 @@ impl<A: Actor> PNCounter<A> {
         Op { dot: self.n.inc(actor), dir: Dir::Neg }
     }
 
-    /// Increment counter.
-    pub fn apply_inc(&mut self, actor: A) {
-        self.p.apply_inc(actor)
-    }
-
-    /// Decrement counter.
-    pub fn apply_dec(&mut self, actor: A) {
-        self.n.apply_inc(actor)
-    }
-
     /// Return the current value of this counter (P-N).
     pub fn read(&self) -> BigInt {
         let p : BigInt = self.p.read().into();
         let n : BigInt = self.n.read().into();
         p-n
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::collections::BTreeSet;
+
+    use quickcheck::quickcheck;
+
+    const ACTOR_MAX: u8 = 11;
+
+    fn build_op(prims: (u8, u64, bool)) -> Op<u8> {
+        let (actor, counter, dir_choice) = prims;
+        Op {
+            dot: Dot { actor, counter },
+            dir: if dir_choice {
+                Dir::Pos
+            } else {
+                Dir::Neg
+            }
+        }
+    }
+
+    quickcheck! {
+        fn prop_merge_converges(op_prims: Vec<(u8, u64, bool)>) -> bool {
+            let ops: Vec<Op<u8>> = op_prims.into_iter().map(build_op).collect();
+
+            let mut results = BTreeSet::new();
+
+            // Permute the interleaving of operations should converge.
+            // Largely taken directly from orswot
+            for i in 2..ACTOR_MAX {
+                let mut witnesses: Vec<PNCounter<u8>> =
+                    (0..i).map(|_| PNCounter::new()).collect();
+                for op in ops.iter() {
+                    let index = op.dot.actor as usize % i as usize;
+                    let witness = &mut witnesses[index];
+                    witness.apply(op.clone());
+                }
+                let mut merged = PNCounter::new();
+                for witness in witnesses.iter() {
+                    merged.merge(witness.clone());
+                }
+
+                results.insert(merged.read());
+                if results.len() > 1 {
+                    println!("opvec: {:?}", ops);
+                    println!("results: {:?}", results);
+                    println!("witnesses: {:?}", &witnesses);
+                    println!("merged: {:?}", merged);
+                }
+            }
+            results.len() == 1
+        }
+    }
+
+    #[test]
+    fn test_basic() {
+        let mut a = PNCounter::new();
+        assert_eq!(a.read(), 0.into());
+
+        a.apply(a.inc("A"));
+        assert_eq!(a.read(), 1.into());
+
+        a.apply(a.inc("A"));
+        assert_eq!(a.read(), 2.into());
+
+        a.apply(a.dec("A"));
+        assert_eq!(a.read(), 1.into());
+
+        a.apply(a.inc("A"));
+        assert_eq!(a.read(), 2.into());
+    }
+
 }

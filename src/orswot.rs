@@ -194,14 +194,14 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     }
 
     /// Add a single element.
-    pub fn add(&self, member: impl Into<M>, ctx: AddCtx<A>) -> Op<M, A> {
-        Op::Add { dot: ctx.dot, member: member.into() }
+    pub fn add(&self, member: M, ctx: AddCtx<A>) -> Op<M, A> {
+        Op::Add { dot: ctx.dot, member }
     }
 
     /// Remove a member with a witnessing ctx.
-    pub fn rm(&self, member: impl Into<M>, ctx: RmCtx<A>) -> Op<M, A> {
+    pub fn rm(&self, member: M, ctx: RmCtx<A>) -> Op<M, A> {
         let mut members = HashSet::new();
-        members.insert(member.into());
+        members.insert(member);
         Op::Rm { clock: ctx.clock, members }
     }
 
@@ -271,18 +271,18 @@ mod tests {
     //  if removed elem is added first, it only misses one
     //  if non-related elem is added, it misses both
     fn ensure_deferred_merges() {
-        let mut a = Orswot::<String, u8>::new();
-        let mut b = Orswot::<String, u8>::new();
+        let mut a = Orswot::new();
+        let mut b = Orswot::new();
 
-        b.apply(b.add("element 1", b.read().derive_add_ctx(5)));
+        b.apply(b.add("element 1", b.read().derive_add_ctx("A")));
 
         // remove with a future context
-        b.apply(b.rm("element 1", RmCtx { clock: Dot::new(5, 4).into() }));
+        b.apply(b.rm("element 1", RmCtx { clock: Dot::new("A", 4).into() }));
 
-        a.apply(a.add("element 4", a.read().derive_add_ctx(6)));
+        a.apply(a.add("element 4", a.read().derive_add_ctx("B")));
         
         // remove with a future context
-        b.apply(b.rm("element 9", RmCtx { clock: Dot::new(4, 4).into() }));
+        b.apply(b.rm("element 9", RmCtx { clock: Dot::new("C", 4).into() }));
 
         let mut merged = Orswot::new();
         merged.merge(a);
@@ -295,17 +295,17 @@ mod tests {
     // were not properly preserved across merges.
     #[test]
     fn preserve_deferred_across_merges() {
-        let mut a = Orswot::<u8, u8>::new();
+        let mut a = Orswot::new();
         let mut b = a.clone();
         let mut c = a.clone();
 
         // add element 5 from witness 1
-        a.apply(a.add(5, a.read().derive_add_ctx(1)));
+        a.apply(a.add(5, a.read().derive_add_ctx("A")));
 
-        // on another clock, remove 5 with an advanced clock for witnesses 1 and 4
+        // on another clock, remove 5 with an advanced clock for witnesses A and B
         let mut vc = VClock::new();
-        vc.apply_dot(Dot::new(1, 3));
-        vc.apply_dot(Dot::new(4, 8));
+        vc.apply(Dot::new("A", 3));
+        vc.apply(Dot::new("B", 8));
 
         // remove from b (has not yet seen add for 5) with advanced ctx
         b.apply(b.rm(5, RmCtx { clock: vc }));
@@ -327,10 +327,10 @@ mod tests {
     // present in both Sets leads to removed items remaining after merge.
     #[test]
     fn test_present_but_removed() {
-        let mut a = Orswot::<u8, String>::new();
-        let mut b = Orswot::<u8, String>::new();
+        let mut a = Orswot::new();
+        let mut b = Orswot::new();
 
-        a.apply(a.add(0, a.read().derive_add_ctx("A".to_string())));
+        a.apply(a.add(0, a.read().derive_add_ctx("A")));
 
         // Replicate it to C so A has 0->{a, 1}
         let c = a.clone();
@@ -338,7 +338,7 @@ mod tests {
         a.apply(a.rm(0, a.contains(&0).derive_rm_ctx()));
         assert_eq!(a.deferred.len(), 0);
 
-        b.apply(b.add(0, b.read().derive_add_ctx("B".to_string())));
+        b.apply(b.add(0, b.read().derive_add_ctx("B")));
 
         // Replicate B to A, so now A has a 0
         // the one with a Dot of {b,1} and clock

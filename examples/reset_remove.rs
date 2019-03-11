@@ -3,12 +3,12 @@ extern crate crdts;
 use crdts::{CvRDT, CmRDT, Map, Orswot};
 
 fn main() {
-    let mut friend_map: Map<String, Orswot<String, u8>, u8> = Map::new();
+    let mut friend_map: Map<&str, Orswot<&str, u8>, u8> = Map::new();
 
+    let read_ctx = friend_map.len(); // we read anything from the map to get a add context
     friend_map.apply(
         friend_map.update(
-            "bob",
-            friend_map.len().derive_add_ctx(1),
+            "bob", read_ctx.derive_add_ctx(1),
             |set, ctx| set.add("janet", ctx)
         )
     );
@@ -29,11 +29,11 @@ fn main() {
     friend_map.apply(
         friend_map.rm(
             "bob",
-            friend_map.get(&"bob".to_string()).derive_rm_ctx()
+            friend_map.get(&"bob").derive_rm_ctx()
         )
     );
 
-    assert!(friend_map.get(&"bob".to_string()).val.is_none());
+    assert!(friend_map.get(&"bob").val.is_none());
 
     // once these two devices synchronize...
     friend_map.merge(friend_map_on_2nd_device.clone());
@@ -46,13 +46,13 @@ fn main() {
     // This is because the `erik` entry was not
     // seen by the first device when it deleted
     // the entry.
-    let bobs_friends = friend_map   // Map<String, Orswot>
-        .get(&"bob".to_string()).val // Option<Orswot>
-        .map(|set| set.read().val)                    // Orswot
+    let bobs_friends = friend_map
+        .get(&"bob").val
+        .map(|set| set.read().val)
         .map(|hashmap| hashmap.into_iter().collect::<Vec<_>>());
 
     assert_eq!(
         bobs_friends,
-        Some(vec!["erik".to_string()])
+        Some(vec!["erik"])
     );
 }

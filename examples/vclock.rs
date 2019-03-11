@@ -1,5 +1,5 @@
 extern crate crdts;
-use crdts::{CvRDT, VClock};
+use crdts::{CvRDT, CmRDT, VClock};
 use std::cmp::Ordering::*;
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
     let mut alices_copy = shared_password.clone();
     
     // bob edits the shared password..
-    bobs_copy.clock.apply_inc("BOB".to_string());
+    bobs_copy.clock.apply(bobs_copy.clock.inc("BOB".to_string()));
     bobs_copy.data = "pa$$w0rd".to_string();
 
     // ... and shares it with alice.
@@ -31,11 +31,11 @@ fn main() {
     alices_copy = bobs_copy.clone();
     
     // Now, alice decides to changes the password.
-    alices_copy.clock.apply_inc("ALICE".to_string());
+    alices_copy.clock.apply(alices_copy.clock.inc("ALICE".to_string()));
     alices_copy.data = "letMein32".to_string();
 
     // But! concurrently, bob edits the password again!
-    bobs_copy.clock.apply_inc("BOB".to_string());
+    bobs_copy.clock.apply(bobs_copy.clock.inc("BOB".to_string()));
     bobs_copy.data = "0sdjf0as9j13k0zc".to_string();
 
     // Alice shares her edit with bob and bob compares clocks
