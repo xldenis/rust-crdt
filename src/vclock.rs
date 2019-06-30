@@ -19,15 +19,14 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::traits::{CvRDT, CmRDT, Causal};
+use crate::traits::{Causal, CmRDT, CvRDT};
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
 pub trait Actor: Ord + Clone + Hash + Debug {}
 impl<A: Ord + Clone + Hash + Debug> Actor for A {}
-
 
 /// Dot is a version marker for a single actor
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,7 +34,7 @@ pub struct Dot<A> {
     /// The actor identifier
     pub actor: A,
     /// The current version of this actor
-    pub counter: u64
+    pub counter: u64,
 }
 
 impl<A: Actor> Dot<A> {
@@ -117,7 +116,7 @@ impl<A: Actor> CmRDT for VClock<A> {
     /// let mut v = VClock::new();
     ///
     /// v.apply(Dot::new("A", 2));
-    /// 
+    ///
     /// // now all dots applied to `v` from actor `A` where
     /// // the counter is not bigger than 2 are nops.
     /// v.apply(Dot::new("A", 0));
@@ -139,7 +138,17 @@ impl<A: Actor> CvRDT for VClock<A> {
 impl<A: Actor> VClock<A> {
     /// Returns a new `VClock` instance.
     pub fn new() -> Self {
-        VClock { dots: BTreeMap::new() }
+        VClock {
+            dots: BTreeMap::new(),
+        }
+    }
+
+    /// Returns a clone of self but with information that is older than given clock is
+    /// forgotten
+    pub fn clone_without(&self, base_clock: &VClock<A>) -> VClock<A> {
+        let mut cloned = self.clone();
+        cloned.forget(&base_clock);
+        cloned
     }
 
     /// Apply a Dot to this vclock.
@@ -173,7 +182,10 @@ impl<A: Actor> VClock<A> {
     /// ```
     pub fn inc(&self, actor: A) -> Dot<A> {
         let next = self.get(&actor) + 1;
-        Dot { actor, counter: next }
+        Dot {
+            actor,
+            counter: next,
+        }
     }
 
     /// True if two vector clocks have diverged.
@@ -193,9 +205,7 @@ impl<A: Actor> VClock<A> {
     /// Return the associated counter for this actor.
     /// All actors not in the vclock have an implied count of 0
     pub fn get(&self, actor: &A) -> u64 {
-        self.dots.get(actor)
-            .cloned()
-            .unwrap_or(0)
+        self.dots.get(actor).cloned().unwrap_or(0)
     }
 
     /// Returns `true` if this vector clock contains nothing.
@@ -205,12 +215,12 @@ impl<A: Actor> VClock<A> {
 
     /// Returns the common elements (same actor and counter)
     /// for two `VClock` instances.
-    pub fn intersection(&self, other: &VClock<A>) -> VClock<A> {
+    pub fn intersection(left: &VClock<A>, right: &VClock<A>) -> VClock<A> {
         let mut dots = BTreeMap::new();
-        for (actor, counter) in self.dots.iter() {
-            let other_counter = other.get(actor);
-            if other_counter == *counter {
-                dots.insert(actor.clone(), *counter);
+        for (left_actor, left_counter) in left.dots.iter() {
+            let right_counter = right.get(left_actor);
+            if right_counter == *left_counter {
+                dots.insert(left_actor.clone(), *left_counter);
             }
         }
         VClock { dots }
@@ -249,16 +259,17 @@ impl<A: Actor> VClock<A> {
     }
 
     /// Returns an iterator over the dots in this vclock
-    pub fn iter(&self) -> impl Iterator<Item=Dot<&A>> {
-        self.dots
-            .iter()
-            .map(|(a, c)| Dot { actor: a, counter: *c })
+    pub fn iter(&self) -> impl Iterator<Item = Dot<&A>> {
+        self.dots.iter().map(|(a, c)| Dot {
+            actor: a,
+            counter: *c,
+        })
     }
 }
 
 /// Generated from calls to VClock::into_iter()
 pub struct IntoIter<A: Actor> {
-    btree_iter: btree_map::IntoIter<A, u64>
+    btree_iter: btree_map::IntoIter<A, u64>,
 }
 
 impl<A: Actor> std::iter::Iterator for IntoIter<A> {
@@ -274,17 +285,17 @@ impl<A: Actor> std::iter::Iterator for IntoIter<A> {
 impl<A: Actor> std::iter::IntoIterator for VClock<A> {
     type Item = Dot<A>;
     type IntoIter = IntoIter<A>;
-    
+
     /// Consumes the vclock and returns an iterator over dots in the clock
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
-            btree_iter: self.dots.into_iter()
+            btree_iter: self.dots.into_iter(),
         }
     }
 }
 
 impl<A: Actor> std::iter::FromIterator<Dot<A>> for VClock<A> {
-    fn from_iter<I: IntoIterator<Item=Dot<A>>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = Dot<A>>>(iter: I) -> Self {
         let mut clock = VClock::new();
 
         for dot in iter {
