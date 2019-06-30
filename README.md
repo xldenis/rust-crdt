@@ -8,27 +8,27 @@
 
 A family of CRDT's supporting both State and Op based replication. 
 
-#### what the heck is a crdt?
-CRDT's are the solution to highly available mutable state. Even if you don't explicitly use a CRDT when building a multi-device application that needs to be useable without an internet connection, you'll end up writing an adhoc, ugly, and buggy implementation of a CRDT.
+#### what is a CRDT?
+CRDT's are the solution to highly available mutable state.
 
-CRDT expands to **C**onflict Free **R**eplicated **D**ata **T**ype, it referes to a family of structures that know how to *merge* without conflicts. There are two sub-families of CRDT's: CvRDT and CmRDT. They differ in how they replicate. CvRDT's are state based, meaning you would ship the entire CRDT state across the network to your peers. CmRDT's instead replicate by distributing all edits (called Op's) to each node in your system.
+CRDT expands to **C**onflict Free **R**eplicated **D**ata **T**ype, it refers to a family of structures that know how to *merge* without conflicts. There are two main sub-families of CRDT's: CvRDT and CmRDT. They differ in how they replicate. CvRDT's are state based, meaning you would ship the entire CRDT state across the network to your peers. CmRDT's instead replicate by distributing all edits (called Op's) to each node in your system.
 
-In this quick look at CRDT's, we'll just be poking at the structure of the CvRDT (CmRDT's are a bit more complex, but the ideas here all still apply). CvRDT structures define a `merge(a, b)` operation which takes states `a` and `b` produces a merged state. A simple example is a GSet (grow-only set), it's `merge` is the union of the two sets.
+Here we'll take a quick look at CRDT's, for the sake of clarity and brevity, we'll focusing only on CvRDT (all ideas still apply to CmRDT's). CvRDT structures define a `merge(a, b)` operation which takes states `a` and `b` produces a merged state. A simple example is the `GSet` (grow-only set), it's `merge` is the union of the two sets.
 
 
-#### turning your structure into a crdt
+#### an attempt to understanding CRDT's by building one
 
-CRDT's are all about partial orders, to turn a structure into a CRDT, you must first define a partial order over the state space of your structure, *BUT* you must do this carefully as the partial order also defines how your merge behaves. For example lets take a look at the state space of this structure:
+CRDT's are all about partial orders, to turn a structure into a CRDT, you must first define a special kind of partial order over the state space of your structure. You must do this carefully as the partial order also defines how your merge behaves. For example lets take a look at the state space of a 2-tuple like structure that stores cubes in two slots, it's state space looks like so:
 
 <p align="center"><img src="art/crdt_statespace.png" /></p>
 
-Now we need a partial order, our partial order must satisfy this constraint:
+To make this structure a CRDT, we need a partial order over the state space that satisfies the folowing constraint:
 
 ```
-∀ s ⊆ S where S is your state space
-∃ lub s and lub s ∈ S
+∀ s ⊆ S where S is your state space  # for any subset of the state space ...
+∃ lub s and lub s ∈ S                # .. the least-upper-bound of the set is also in the state space
 ```
-`lub` is the Least Upper Bound, it takes a subset of the state space and produces a **unique** least upper bound of all states in the subset. Here's a partial order that satisfies the constraints:
+`lub` is the Least Upper Bound operation, it takes a subset of the state space and produces a **unique** state that is greater than or equal to all states in the subset. Here's a partial order that satisfies the constraints:
 
 <p align="center"><img src="art/crdt_partial_order.png" /></p>
 
@@ -53,15 +53,15 @@ Working with a CRDT is a bit different from datastructures you may be used to. S
 For example, if you clear a `Map`, we want to be able to say that this clear operation will only effect entries in the map that you are aware of. If you are not tracking this causal history of your edits correctly, you could end up deleting data that you are not aware of. e.g. a good way to lose data would be to do something like this:
 1. you receive a `Map` CRDT from across the network.
 2. you read the `Map`'s key/value pairs and display them to the user.
-3. you receive an update version of the `Map` CRDT but the user has not refreshed their view.
-4. The user chooses to clear the values of the `Map`. So you call `Map::clear` on your CRDT.
+3. you receive an updated version of the `Map` CRDT but the user has not refreshed their view.
+4. The user chooses to clear the values of the `Map`. So you call `Map::clear()` on your CRDT.
 
-At this point you've potentially cleared data that the user didn't want to clear. To fix this, we need to include a `causal` context with the clear operation. This causal context is a vector clock (VClock) that stores the version of the `Map` that was seen by this user when they decided to `Map::clear()`.
+At this point you've potentially cleared data that the user didn't want to clear. To fix this, we need to include a `Causal` context with the clear operation. This causal context is a vector clock (VClock) that stores the version of the `Map` that was seen by this user when they decided to `Map::clear()`.
 
 ##### Good way to interact with CRDT's
-Lets take a look at what interacting with CRDT's looks like in using `crdts`.
+Lets take a look at what interacting with CRDT's looks like when using `crdts`.
 
-1. First create an instance of the CRDT, we'll use the MVReg (Multi-Value Register) CRDT for this example. It allows us to store a value and resolves conflicting values by keeping both.
+1. First create an instance of the CRDT, we'll use the MVReg (Multi-Value Register) CRDT for this example. It allows us to store a value and resolves concurrently set values by keeping both values.
 ``` rust
 let mut reg = MVReg::new();
 ```
