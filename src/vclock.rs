@@ -142,6 +142,14 @@ impl<A: Actor> VClock<A> {
         VClock { dots: BTreeMap::new() }
     }
 
+    /// Returns a clone of self but with information that is older than given clock is
+    /// forgotten
+    pub fn clone_without(&self, base_clock: &VClock<A>) -> VClock<A> {
+        let mut cloned = self.clone();
+        cloned.forget(&base_clock);
+        cloned
+    }
+
     /// Apply a Dot to this vclock.
     fn apply_dot(&mut self, dot: Dot<A>) {
         if self.get(&dot.actor) < dot.counter {
@@ -205,12 +213,12 @@ impl<A: Actor> VClock<A> {
 
     /// Returns the common elements (same actor and counter)
     /// for two `VClock` instances.
-    pub fn intersection(&self, other: &VClock<A>) -> VClock<A> {
+    pub fn intersection(left: &VClock<A>, right: &VClock<A>) -> VClock<A> {
         let mut dots = BTreeMap::new();
-        for (actor, counter) in self.dots.iter() {
-            let other_counter = other.get(actor);
-            if other_counter == *counter {
-                dots.insert(actor.clone(), *counter);
+        for (left_actor, left_counter) in left.dots.iter() {
+            let right_counter = right.get(left_actor);
+            if right_counter == *left_counter {
+                dots.insert(left_actor.clone(), *left_counter);
             }
         }
         VClock { dots }

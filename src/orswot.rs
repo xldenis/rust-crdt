@@ -109,15 +109,10 @@ impl<M: Member, A: Actor> CvRDT for Orswot<M, A> {
             if let Some(our_clock) = self.entries.get_mut(&entry) {
                 // SUBTLE: this entry is present in both orswots, BUT that doesn't mean we
                 // shouldn't drop it!
-                let mut common = clock.intersection(&our_clock);
-                let mut e_clock = clock.clone();
-                let mut oe_clock = our_clock.clone();
-                e_clock.forget(&self.clock);
-                oe_clock.forget(&other.clock);
-
                 // Perfectly possible that an item in both sets should be dropped
-                common.merge(e_clock);
-                common.merge(oe_clock);
+                let mut common = VClock::intersection(&clock, &our_clock);
+                common.merge(clock.clone_without(&self.clock));
+                common.merge(our_clock.clone_without(&other.clock));
                 if common.is_empty() {
                     // both maps had seen each others entry and removed them
                     self.entries.remove(&entry).unwrap();

@@ -171,15 +171,10 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
             if let Some(our_entry) = self.entries.get_mut(&key) {
                 // SUBTLE: this entry is present in both maps, BUT that doesn't mean we
                 // shouldn't drop it!
-                let mut common = entry.clock.intersection(&our_entry.clock);
-                let mut e_clock = entry.clock.clone();
-                let mut oe_clock = our_entry.clock.clone();
-                e_clock.forget(&self.clock);
-                oe_clock.forget(&other.clock);
-
                 // Perfectly possible that an item in both sets should be dropped
-                common.merge(e_clock);
-                common.merge(oe_clock);
+                let mut common = VClock::intersection(&entry.clock, &our_entry.clock);
+                common.merge(entry.clock.clone_without(&self.clock));
+                common.merge(our_entry.clock.clone_without(&other.clock));
                 if common.is_empty() {
                     // both maps had seen each others entry and removed them
                     self.entries.remove(&key).unwrap();
