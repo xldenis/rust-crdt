@@ -17,11 +17,11 @@ fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
         let (choice, inner_choice, key, inner_key, val) = op_data;
         let clock: VClock<_> = Dot::new(actor, i as u64).into();
 
-        let op = match choice % 3 {
+        let op = match choice % 2 {
             0 => map::Op::Up {
                 dot: clock.inc(actor),
                 key,
-                op: match inner_choice % 3 {
+                op: match inner_choice % 2 {
                     0 => map::Op::Up {
                         dot: clock.inc(actor),
                         key: inner_key,
@@ -31,14 +31,14 @@ fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
                         clock,
                         keyset: vec![inner_key].into_iter().collect(),
                     },
-                    _ => map::Op::Nop,
+                    _ => unreachable!(),
                 },
             },
             1 => map::Op::Rm {
                 clock,
                 keyset: vec![key].into_iter().collect(),
             },
-            _ => map::Op::Nop,
+            _ => unreachable!(),
         };
         ops.push(op);
     }
@@ -202,7 +202,10 @@ fn test_concurrent_update_and_remove_add_bias() {
         clock: Dot::new(1, 1).into(),
         keyset: vec![102].into_iter().collect(),
     };
-    let op2 = m2.update(102, m2.get(&102).derive_add_ctx(2), |_, _| map::Op::Nop);
+
+    let op2 = m2.update(102, m2.get(&102).derive_add_ctx(2), |map, ctx| {
+        map.update(42, ctx, |reg, ctx| reg.write(7, ctx))
+    });
 
     m1.apply(op1.clone());
     m2.apply(op2.clone());
@@ -221,7 +224,13 @@ fn test_concurrent_update_and_remove_add_bias() {
     assert_eq!(m1, m1_clone);
 
     // we bias towards adds
-    assert_eq!(m1.get(&102).val, Some(Map::new()));
+    assert_eq!(
+        m1.get(&102)
+            .val
+            .and_then(|map| map.get(&42).val)
+            .map(|reg| reg.read().val),
+        Some(vec![7])
+    );
 }
 
 #[test]
@@ -357,7 +366,18 @@ fn test_idempotent_quickcheck_bug1() {
         map::Op::Up {
             dot: Dot::new(21, 5),
             key: 0,
-            op: map::Op::Nop,
+            op: map::Op::Up {
+                dot: Dot::new(21, 1),
+                key: 32,
+                op: mvreg::Op::Put {
+                    clock: VClock::new(),
+                    val: 42,
+                },
+            },
+        },
+        map::Op::Rm {
+            clock: [Dot::new(21, 5)].into_iter().cloned().collect(),
+            keyset: [0].into_iter().copied().collect(),
         },
         map::Op::Up {
             dot: Dot::new(21, 6),
@@ -409,18 +429,18 @@ fn test_idempotent_quickcheck_bug2() {
 }
 
 #[test]
-fn test_nop_on_new_map_should_remain_a_new_map() {
-    let mut map = TMap::new();
-    map.apply(map::Op::Nop);
-    assert_eq!(map, TMap::new());
-}
-
-#[test]
 fn test_op_exchange_same_as_merge_quickcheck1() {
     let op1 = map::Op::Up {
         dot: Dot::new(38, 4),
         key: 216,
-        op: map::Op::Nop,
+        op: map::Op::Up {
+            dot: Dot::new(38, 1),
+            key: 37,
+            op: mvreg::Op::Put {
+                clock: Dot::new(38, 1).into(),
+                val: 94,
+            },
+        },
     };
     let op2 = map::Op::Up {
         dot: Dot::new(91, 9),
