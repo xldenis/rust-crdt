@@ -2,7 +2,7 @@ extern crate crdts;
 extern crate rand;
 
 use crdts::{orswot::Op, *};
-use hashbrown::HashSet;
+use std::collections::HashSet;
 
 const ACTOR_MAX: u8 = 11;
 
