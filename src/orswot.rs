@@ -1,5 +1,5 @@
 /// Observed-Remove Set With Out Tombstones (ORSWOT), ported directly from `riak_dt`.
-use hashbrown::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -21,7 +21,7 @@ impl<T: Debug + Clone + Hash + Eq> Member for T {}
 pub struct Orswot<M: Member, A: Actor> {
     pub(crate) clock: VClock<A>,
     pub(crate) entries: HashMap<M, VClock<A>>,
-    pub(crate) deferred: hashbrown::HashMap<VClock<A>, HashSet<M>>,
+    pub(crate) deferred: HashMap<VClock<A>, HashSet<M>>,
 }
 
 /// Op's define an edit to an Orswot, Op's must be replayed in the exact order

@@ -182,5 +182,4 @@ mod test {
         a.apply(a.inc("A"));
         assert_eq!(a.read(), 2.into());
     }
-
 }
