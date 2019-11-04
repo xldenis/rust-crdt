@@ -54,8 +54,6 @@ struct Entry<V: Val<A>, A: Actor> {
 /// Operations which can be applied to the Map CRDT
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<K: Key, V: Val<A>, A: Actor> {
-    /// No change to the CRDT
-    Nop,
     /// Remove a key from the map
     Rm {
         /// The clock under which we will perform this remove
@@ -125,7 +123,6 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
 
     fn apply(&mut self, op: Self::Op) {
         match op {
-            Op::Nop => { /* do nothing */ }
             Op::Rm { clock, keyset } => self.apply_keyset_rm(keyset, clock),
             Op::Up { dot, key, op } => {
                 if self.clock.get(&dot.actor) >= dot.counter {
