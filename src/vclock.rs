@@ -40,7 +40,7 @@ pub struct Dot<A> {
 impl<A: Actor> Dot<A> {
     /// Build a Dot from an actor and counter
     pub fn new(actor: A, counter: u64) -> Self {
-        Dot { actor, counter }
+        Self { actor, counter }
     }
 }
 
@@ -61,7 +61,7 @@ pub struct VClock<A: Actor> {
 
 impl<A: Actor> Default for VClock<A> {
     fn default() -> Self {
-        VClock::new()
+        Self::new()
     }
 }
 
@@ -95,7 +95,7 @@ impl<A: Actor + Display> Display for VClock<A> {
 impl<A: Actor> Causal<A> for VClock<A> {
     /// Forget any actors that have smaller counts than the
     /// count in the given vclock
-    fn forget(&mut self, other: &VClock<A>) {
+    fn forget(&mut self, other: &Self) {
         for Dot { actor, counter } in other.iter() {
             if counter >= self.get(&actor) {
                 self.dots.remove(&actor);
@@ -128,7 +128,7 @@ impl<A: Actor> CmRDT for VClock<A> {
 }
 
 impl<A: Actor> CvRDT for VClock<A> {
-    fn merge(&mut self, other: VClock<A>) {
+    fn merge(&mut self, other: Self) {
         for (actor, counter) in other.dots {
             self.apply_dot(Dot::new(actor, counter));
         }
@@ -138,14 +138,14 @@ impl<A: Actor> CvRDT for VClock<A> {
 impl<A: Actor> VClock<A> {
     /// Returns a new `VClock` instance.
     pub fn new() -> Self {
-        VClock {
+        Self {
             dots: BTreeMap::new(),
         }
     }
 
     /// Returns a clone of self but with information that is older than given clock is
     /// forgotten
-    pub fn clone_without(&self, base_clock: &VClock<A>) -> VClock<A> {
+    pub fn clone_without(&self, base_clock: &Self) -> Self {
         let mut cloned = self.clone();
         cloned.forget(&base_clock);
         cloned
@@ -215,7 +215,7 @@ impl<A: Actor> VClock<A> {
 
     /// Returns the common elements (same actor and counter)
     /// for two `VClock` instances.
-    pub fn intersection(left: &VClock<A>, right: &VClock<A>) -> VClock<A> {
+    pub fn intersection(left: &VClock<A>, right: &Self) -> Self {
         let mut dots = BTreeMap::new();
         for (left_actor, left_counter) in left.dots.iter() {
             let right_counter = right.get(left_actor);
@@ -223,7 +223,7 @@ impl<A: Actor> VClock<A> {
                 dots.insert(left_actor.clone(), *left_counter);
             }
         }
-        VClock { dots }
+        Self { dots }
     }
 
     /// Reduces this VClock to the greatest-lower-bound of the given
@@ -243,7 +243,7 @@ impl<A: Actor> VClock<A> {
     /// c.glb(&c2); // should remove the 43 => 1 entry
     /// assert_eq!(c.get(&43), 0);
     /// ```
-    pub fn glb(&mut self, other: &VClock<A>) {
+    pub fn glb(&mut self, other: &Self) {
         self.dots = mem::replace(&mut self.dots, BTreeMap::new())
             .into_iter()
             .filter_map(|(actor, count)| {

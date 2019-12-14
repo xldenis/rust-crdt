@@ -20,7 +20,7 @@ impl error::Error for Error {
             Error::ConflictingMarker => "Dot's are used exactly once for the lifetime of a CRDT",
         }
     }
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match self {
             Error::ConflictingMarker => None,
         }

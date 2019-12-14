@@ -27,8 +27,8 @@ pub struct LWWReg<V: Val, M: Marker> {
 }
 
 impl<V: Val + Default, M: Marker + Default> Default for LWWReg<V, M> {
-    fn default() -> LWWReg<V, M> {
-        LWWReg {
+    fn default() -> Self {
+        Self {
             val: V::default(),
             marker: M::default(),
         }

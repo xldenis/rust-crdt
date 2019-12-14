@@ -47,7 +47,7 @@ impl<T: Ord + Debug> CmRDT for GSet<T> {
 impl<T: Ord> GSet<T> {
     /// Instantiates an empty `GSet`.
     pub fn new() -> Self {
-        GSet {
+        Self {
             value: BTreeSet::new(),
         }
     }
