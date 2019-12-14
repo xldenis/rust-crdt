@@ -56,7 +56,7 @@ impl<A: Actor> Causal<A> for GCounter<A> {
 impl<A: Actor> GCounter<A> {
     /// Produce a new `GCounter`.
     pub fn new() -> Self {
-        GCounter {
+        Self {
             inner: VClock::new(),
         }
     }

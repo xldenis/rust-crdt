@@ -109,7 +109,7 @@ impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
 
 impl<V: Val, A: Actor> Default for MVReg<V, A> {
     fn default() -> Self {
-        MVReg::new()
+        Self::new()
     }
 }
 
@@ -172,7 +172,7 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
 impl<V: Val, A: Actor> MVReg<V, A> {
     /// Construct a new empty MVReg
     pub fn new() -> Self {
-        MVReg { vals: Vec::new() }
+        Self { vals: Vec::new() }
     }
 
     /// Set the value of the register
