@@ -74,7 +74,7 @@ pub enum Op<K: Key, V: Val<A>, A: Actor> {
 
 impl<V: Val<A>, A: Actor> Default for Entry<V, A> {
     fn default() -> Self {
-        Entry {
+        Self {
             clock: VClock::default(),
             val: V::default(),
         }
@@ -227,7 +227,7 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
 impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     /// Constructs an empty Map
     pub fn new() -> Self {
-        Map {
+        Self {
             clock: VClock::new(),
             entries: BTreeMap::new(),
             deferred: HashMap::new(),

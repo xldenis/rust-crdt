@@ -29,7 +29,7 @@ pub struct GCounter<A: Actor> {
 
 impl<A: Actor> Default for GCounter<A> {
     fn default() -> Self {
-        GCounter::new()
+        Self::new()
     }
 }
 

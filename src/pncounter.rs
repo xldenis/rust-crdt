@@ -52,7 +52,7 @@ pub struct Op<A: Actor> {
 
 impl<A: Actor> Default for PNCounter<A> {
     fn default() -> Self {
-        PNCounter::new()
+        Self::new()
     }
 }
 
@@ -84,7 +84,7 @@ impl<A: Actor> Causal<A> for PNCounter<A> {
 impl<A: Actor> PNCounter<A> {
     /// Produce a new `PNCounter`.
     pub fn new() -> Self {
-        PNCounter {
+        Self {
             p: GCounter::new(),
             n: GCounter::new(),
         }
