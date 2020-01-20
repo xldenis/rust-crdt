@@ -178,6 +178,14 @@ impl<M: Member, A: Actor> Causal<A> for Orswot<M, A> {
             })
             .collect();
     }
+
+    fn read_ctx(&self) -> ReadCtx<(), A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: (),
+        }
+    }
 }
 
 impl<M: Member, A: Actor> Orswot<M, A> {

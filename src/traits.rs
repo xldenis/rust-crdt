@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use crate::ctx::ReadCtx;
 use crate::vclock::{Actor, VClock};
 
 /// State based CRDT's replicate by transmitting the entire CRDT state.
@@ -41,6 +42,9 @@ pub trait CmRDT {
 pub trait Causal<A: Actor> {
     /// Forget data that is strictly smaller than this clock
     fn forget(&mut self, clock: &VClock<A>);
+
+    /// Retrieve the current read context
+    fn read_ctx(&self) -> ReadCtx<(), A>;
 }
 
 /// Funky variant of the `CvRDT` trait.

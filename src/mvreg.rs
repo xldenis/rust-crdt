@@ -105,6 +105,15 @@ impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
             })
             .collect()
     }
+
+    fn read_ctx(&self) -> ReadCtx<(), A> {
+        let clock = self.clock().clone();
+        ReadCtx {
+            add_clock: clock.clone(),
+            rm_clock: clock,
+            val: (),
+        }
+    }
 }
 
 impl<V: Val, A: Actor> Default for MVReg<V, A> {
@@ -150,7 +159,7 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
                 // TAI: in the case were the Op has a context that already was present,
                 //      the above line would remove that value, the next lines would
                 //      keep the val from the Op, so.. a malformed Op could break
-                //      comutativity.
+                //      commutativity.
 
                 // now check if we've already seen this op
                 let mut should_add = true;

@@ -1,6 +1,7 @@
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
+use crate::ctx::ReadCtx;
 use crate::traits::{Causal, CmRDT, CvRDT};
 use crate::vclock::{Actor, Dot, VClock};
 
@@ -24,7 +25,7 @@ use crate::vclock::{Actor, Dot, VClock};
 /// ```
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct GCounter<A: Actor> {
-    inner: VClock<A>,
+    pub(crate) inner: VClock<A>,
 }
 
 impl<A: Actor> Default for GCounter<A> {
@@ -50,6 +51,14 @@ impl<A: Actor> CvRDT for GCounter<A> {
 impl<A: Actor> Causal<A> for GCounter<A> {
     fn forget(&mut self, clock: &VClock<A>) {
         self.inner.forget(&clock);
+    }
+
+    fn read_ctx(&self) -> ReadCtx<(), A> {
+        ReadCtx {
+            add_clock: self.inner.clone(),
+            rm_clock: VClock::default(),
+            val: (),
+        }
     }
 }
 

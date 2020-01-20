@@ -1,6 +1,7 @@
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 
+use crate::ctx::ReadCtx;
 use crate::gcounter::GCounter;
 use crate::traits::{Causal, CmRDT, CvRDT};
 use crate::vclock::{Actor, Dot, VClock};
@@ -78,6 +79,14 @@ impl<A: Actor> Causal<A> for PNCounter<A> {
     fn forget(&mut self, clock: &VClock<A>) {
         self.p.forget(&clock);
         self.n.forget(&clock);
+    }
+
+    fn read_ctx(&self) -> ReadCtx<(), A> {
+        ReadCtx {
+            add_clock: self.p.inner.clone(),
+            rm_clock: self.n.inner.clone(),
+            val: (),
+        }
     }
 }
 
