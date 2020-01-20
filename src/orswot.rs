@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::iter::{once, FromIterator};
 use std::mem;
 
 use serde::{Deserialize, Serialize};
@@ -30,18 +31,18 @@ pub struct Orswot<M: Member, A: Actor> {
 /// Op's are idempotent, that is, applying an Op twice will not have an effect
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op<M: Member, A: Actor> {
-    /// Add a member to the set
+    /// Add members to the set
     Add {
         /// witnessing dot
         dot: Dot<A>,
-        /// Member to add
-        member: M,
+        /// Members to add
+        members: HashSet<M>,
     },
-    /// Remove a member from the set
+    /// Remove member from the set
     Rm {
         /// witnessing clock
         clock: VClock<A>,
-        /// Member to remove
+        /// Members to remove
         members: HashSet<M>,
     },
 }
@@ -57,14 +58,16 @@ impl<M: Member, A: Actor> CmRDT for Orswot<M, A> {
 
     fn apply(&mut self, op: Self::Op) {
         match op {
-            Op::Add { dot, member } => {
+            Op::Add { dot, members } => {
                 if self.clock.get(&dot.actor) >= dot.counter {
                     // we've already seen this op
                     return;
                 }
 
-                let member_vclock = self.entries.entry(member).or_default();
-                member_vclock.apply(dot.clone());
+                for member in members {
+                    let member_vclock = self.entries.entry(member).or_default();
+                    member_vclock.apply(dot.clone());
+                }
 
                 self.clock.apply(dot);
                 self.apply_deferred();
@@ -194,7 +197,15 @@ impl<M: Member, A: Actor> Orswot<M, A> {
     pub fn add(&self, member: M, ctx: AddCtx<A>) -> Op<M, A> {
         Op::Add {
             dot: ctx.dot,
-            member,
+            members: once(member).collect(),
+        }
+    }
+
+    /// Add multiple elements.
+    pub fn add_all<I: IntoIterator<Item = M>>(&self, members: I, ctx: AddCtx<A>) -> Op<M, A> {
+        Op::Add {
+            dot: ctx.dot,
+            members: HashSet::from_iter(members),
         }
     }
 
@@ -205,6 +216,14 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         Op::Rm {
             clock: ctx.clock,
             members,
+        }
+    }
+
+    /// Remove members with a witnessing ctx.
+    pub fn rm_all<I: IntoIterator<Item = M>>(&self, members: I, ctx: RmCtx<A>) -> Op<M, A> {
+        Op::Rm {
+            clock: ctx.clock,
+            members: HashSet::from_iter(members),
         }
     }
 

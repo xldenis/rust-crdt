@@ -3,6 +3,7 @@ extern crate rand;
 
 use crdts::{orswot::Op, *};
 use std::collections::HashSet;
+use std::iter::once;
 
 const ACTOR_MAX: u8 = 11;
 
@@ -16,7 +17,7 @@ fn build_opvec(op_prims: Vec<(u8, u8, u8, u64)>) -> OpVec {
     for (actor, member, choice, counter) in op_prims {
         let op = match choice % 2 {
             0 => Op::Add {
-                member,
+                members: once(member).collect(),
                 dot: Dot { actor, counter },
             },
             _ => Op::Rm {
@@ -213,7 +214,7 @@ fn test_dead_node_update() {
         a_op,
         Op::Add {
             dot: Dot::new("A", 1),
-            member: 0
+            members: once(0).collect(),
         }
     );
 
