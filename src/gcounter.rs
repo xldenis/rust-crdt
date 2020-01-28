@@ -24,7 +24,7 @@ use crate::vclock::{Actor, Dot, VClock};
 /// ```
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct GCounter<A: Actor> {
-    pub(crate) inner: VClock<A>,
+    inner: VClock<A>,
 }
 
 impl<A: Actor> Default for GCounter<A> {
