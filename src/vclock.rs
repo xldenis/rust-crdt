@@ -21,7 +21,6 @@ use std::mem;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ctx::ReadCtx;
 use crate::traits::{Causal, CmRDT, CvRDT};
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
@@ -101,15 +100,6 @@ impl<A: Actor> Causal<A> for VClock<A> {
             if counter >= self.get(&actor) {
                 self.dots.remove(&actor);
             }
-        }
-    }
-
-    fn read_ctx(&self) -> ReadCtx<(), A> {
-        let clock = self.clone();
-        ReadCtx {
-            add_clock: clock.clone(),
-            rm_clock: clock,
-            val: (),
         }
     }
 }

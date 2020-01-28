@@ -105,15 +105,6 @@ impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
             })
             .collect()
     }
-
-    fn read_ctx(&self) -> ReadCtx<(), A> {
-        let clock = self.clock().clone();
-        ReadCtx {
-            add_clock: clock.clone(),
-            rm_clock: clock,
-            val: (),
-        }
-    }
 }
 
 impl<V: Val, A: Actor> Default for MVReg<V, A> {
@@ -201,6 +192,16 @@ impl<V: Val, A: Actor> MVReg<V, A> {
             add_clock: clock.clone(),
             rm_clock: clock,
             val: concurrent_vals,
+        }
+    }
+
+    /// Retrieve the current read context
+    pub fn read_ctx(&self) -> ReadCtx<(), A> {
+        let clock = self.clock().clone();
+        ReadCtx {
+            add_clock: clock.clone(),
+            rm_clock: clock,
+            val: (),
         }
     }
 

@@ -116,14 +116,6 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
 
         self.clock.forget(&clock);
     }
-
-    fn read_ctx(&self) -> ReadCtx<(), A> {
-        ReadCtx {
-            add_clock: self.clock.clone(),
-            rm_clock: self.clock.clone(),
-            val: (),
-        }
-    }
 }
 
 impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
@@ -297,6 +289,15 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         Op::Rm {
             clock: ctx.clock,
             keyset: keyset,
+        }
+    }
+
+    /// Retrieve the current read context
+    pub fn read_ctx(&self) -> ReadCtx<(), A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: (),
         }
     }
 
