@@ -292,6 +292,15 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         }
     }
 
+    /// Retrieve the current read context
+    pub fn read_ctx(&self) -> ReadCtx<(), A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: (),
+        }
+    }
+
     /// apply the pending deferred removes
     fn apply_deferred(&mut self) {
         let deferred = mem::replace(&mut self.deferred, HashMap::new());

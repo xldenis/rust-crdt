@@ -251,6 +251,15 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         }
     }
 
+    /// Retrieve the current read context
+    pub fn read_ctx(&self) -> ReadCtx<(), A> {
+        ReadCtx {
+            add_clock: self.clock.clone(),
+            rm_clock: self.clock.clone(),
+            val: (),
+        }
+    }
+
     fn apply_deferred(&mut self) {
         let deferred = mem::replace(&mut self.deferred, HashMap::new());
         for (clock, entries) in deferred.into_iter() {
