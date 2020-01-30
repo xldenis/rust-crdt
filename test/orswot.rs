@@ -3,6 +3,7 @@ extern crate rand;
 
 use crdts::{orswot::Op, *};
 use std::collections::HashSet;
+use std::iter::once;
 
 const ACTOR_MAX: u8 = 11;
 
@@ -11,16 +12,16 @@ struct OpVec {
     ops: Vec<(u8, Op<u8, u8>)>,
 }
 
-fn build_opvec(op_prims: Vec<(u8, u8, u8, u64)>) -> OpVec {
+fn build_opvec(op_prims: Vec<(u8, HashSet<u8>, u8, u64)>) -> OpVec {
     let mut ops = Vec::new();
-    for (actor, member, choice, counter) in op_prims {
+    for (actor, members, choice, counter) in op_prims {
         let op = match choice % 2 {
             0 => Op::Add {
-                member,
+                members,
                 dot: Dot { actor, counter },
             },
             _ => Op::Rm {
-                members: vec![member].into_iter().collect(),
+                members,
                 clock: Dot { actor, counter }.into(),
             },
         };
@@ -30,7 +31,7 @@ fn build_opvec(op_prims: Vec<(u8, u8, u8, u64)>) -> OpVec {
 }
 
 quickcheck! {
-    fn prop_merge_converges(op_prims: Vec<(u8, u8, u8, u64)>) -> bool {
+    fn prop_merge_converges(op_prims: Vec<(u8, HashSet<u8>, u8, u64)>) -> bool {
         let ops = build_opvec(op_prims);
         // Different interleavings of ops applied to different
         // orswots should all converge when merged. Apply the
@@ -213,7 +214,7 @@ fn test_dead_node_update() {
         a_op,
         Op::Add {
             dot: Dot::new("A", 1),
-            member: 0
+            members: once(0).collect(),
         }
     );
 
