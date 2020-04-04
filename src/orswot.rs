@@ -192,6 +192,11 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         }
     }
 
+    /// Return a snapshot of the ORSWOT clock
+    pub fn clock(&self) -> VClock<A> {
+        self.clock.clone()
+    }
+
     /// Add a single element.
     pub fn add(&self, member: M, ctx: AddCtx<A>) -> Op<M, A> {
         Op::Add {

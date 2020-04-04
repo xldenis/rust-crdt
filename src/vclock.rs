@@ -12,11 +12,11 @@
 //! assert!(a > b);
 //! ```
 
-// TODO: we have a mixture of language here with witness and actor. Clean this up
 use std::cmp::{self, Ordering};
 use std::collections::{btree_map, BTreeMap};
 use std::fmt::{self, Display};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
+
 use std::mem;
 
 use serde::{Deserialize, Serialize};
@@ -188,6 +188,18 @@ impl<A: Actor> VClock<A> {
         }
     }
 
+    /// Return the associated counter for this actor.
+    /// All actors not in the vclock have an implied count of 0
+    pub fn get(&self, actor: &A) -> u64 {
+        self.dots.get(actor).cloned().unwrap_or(0)
+    }
+
+    /// Return the Dot for a given actor
+    pub fn dot(&self, actor: A) -> Dot<A> {
+        let counter = self.get(&actor);
+        Dot::new(actor, counter)
+    }
+
     /// True if two vector clocks have diverged.
     ///
     /// # Examples
@@ -200,12 +212,6 @@ impl<A: Actor> VClock<A> {
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
         self.partial_cmp(other).is_none()
-    }
-
-    /// Return the associated counter for this actor.
-    /// All actors not in the vclock have an implied count of 0
-    pub fn get(&self, actor: &A) -> u64 {
-        self.dots.get(actor).cloned().unwrap_or(0)
     }
 
     /// Returns `true` if this vector clock contains nothing.
@@ -311,5 +317,14 @@ impl<A: Actor> From<Dot<A>> for VClock<A> {
         let mut clock = VClock::new();
         clock.apply(dot);
         clock
+    }
+}
+
+impl<A: Actor + Copy> Copy for Dot<A> {}
+
+impl<A: Actor + Hash> Hash for Dot<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.actor.hash(state);
+        self.counter.hash(state);
     }
 }
