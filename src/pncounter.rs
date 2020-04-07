@@ -1,9 +1,8 @@
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 
-use crate::gcounter::GCounter;
 use crate::traits::{Causal, CmRDT, CvRDT};
-use crate::vclock::{Actor, Dot, VClock};
+use crate::{Actor, Dot, GCounter, VClock};
 
 /// `PNCounter` allows the counter to be both incremented and decremented
 /// by representing the increments (P) and the decrements (N) in separate

@@ -8,8 +8,7 @@ use std::mem;
 use serde::{Deserialize, Serialize};
 
 use crate::ctx::{AddCtx, ReadCtx, RmCtx};
-use crate::traits::{Causal, CmRDT, CvRDT};
-use crate::vclock::{Actor, Dot, VClock};
+use crate::{Actor, Causal, CmRDT, CvRDT, Dot, VClock};
 
 /// Trait bound alias for members in a set
 pub trait Member: Clone + Hash + Eq {}

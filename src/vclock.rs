@@ -15,34 +15,12 @@
 use std::cmp::{self, Ordering};
 use std::collections::{btree_map, BTreeMap};
 use std::fmt::{self, Display};
-use std::hash::{Hash, Hasher};
-
+use std::hash::Hash;
 use std::mem;
 
 use serde::{Deserialize, Serialize};
 
-use crate::traits::{Causal, CmRDT, CvRDT};
-
-/// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
-/// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Hash {}
-impl<A: Ord + Clone + Hash> Actor for A {}
-
-/// Dot is a version marker for a single actor
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Dot<A> {
-    /// The actor identifier
-    pub actor: A,
-    /// The current version of this actor
-    pub counter: u64,
-}
-
-impl<A: Actor> Dot<A> {
-    /// Build a Dot from an actor and counter
-    pub fn new(actor: A, counter: u64) -> Self {
-        Self { actor, counter }
-    }
-}
+use crate::{Actor, Causal, CmRDT, CvRDT, Dot};
 
 /// A `VClock` is a standard vector clock.
 /// It contains a set of "actors" and associated counters.
@@ -317,14 +295,5 @@ impl<A: Actor> From<Dot<A>> for VClock<A> {
         let mut clock = VClock::new();
         clock.apply(dot);
         clock
-    }
-}
-
-impl<A: Actor + Copy> Copy for Dot<A> {}
-
-impl<A: Actor + Hash> Hash for Dot<A> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.actor.hash(state);
-        self.counter.hash(state);
     }
 }

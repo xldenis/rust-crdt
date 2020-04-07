@@ -14,7 +14,7 @@ mod error;
 pub use crate::error::Error;
 
 mod traits;
-pub use crate::traits::{Causal, CmRDT, CvRDT, FunkyCmRDT, FunkyCvRDT};
+pub use crate::traits::{Actor, Causal, CmRDT, CvRDT, FunkyCmRDT, FunkyCvRDT};
 
 /// This module contains a Last-Write-Wins Register.
 pub mod lwwreg;
@@ -22,7 +22,11 @@ pub mod lwwreg;
 /// This module contains a Multi-Value Register.
 pub mod mvreg;
 
+/// This module contains the Vector Clock
 pub mod vclock;
+
+/// This module contains the Dot (Actor + Sequence Number)
+pub mod dot;
 
 /// This module contains an Observed-Remove Set With Out Tombstones.
 pub mod orswot;
@@ -44,12 +48,6 @@ pub mod ctx;
 
 // Top-level re-exports for CRDT structures.
 pub use crate::{
-    gcounter::GCounter,
-    gset::GSet,
-    lwwreg::LWWReg,
-    map::Map,
-    mvreg::MVReg,
-    orswot::Orswot,
-    pncounter::PNCounter,
-    vclock::{Dot, VClock},
+    dot::Dot, gcounter::GCounter, gset::GSet, lwwreg::LWWReg, map::Map, mvreg::MVReg,
+    orswot::Orswot, pncounter::PNCounter, vclock::VClock,
 };

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-use crate::traits::{CmRDT, CvRDT};
+use crate::{CmRDT, CvRDT};
 
 /// A `GSet` is a grow-only set.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

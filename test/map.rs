@@ -376,8 +376,8 @@ fn test_idempotent_quickcheck_bug1() {
             },
         },
         map::Op::Rm {
-            clock: [Dot::new(21, 5)].iter().cloned().collect(),
-            keyset: [0].iter().copied().collect(),
+            clock: vec![Dot::new(21, 5)].into_iter().collect(),
+            keyset: vec![0].into_iter().collect(),
         },
         map::Op::Up {
             dot: Dot::new(21, 6),
