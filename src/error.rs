@@ -30,10 +30,7 @@ impl error::Error for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::ConflictingMarker => {
-                use std::error::Error;
-                write!(f, "{}", self.description())
-            }
+            Error::ConflictingMarker => write!(f, "{}", self.to_string()),
         }
     }
 }

@@ -284,7 +284,7 @@ impl<K: Ord, V: Val<A>, A: Actor> Map<K, V, A> {
         keyset.insert(key.into());
         Op::Rm {
             clock: ctx.clock,
-            keyset: keyset,
+            keyset,
         }
     }
 
