@@ -16,14 +16,14 @@ fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
     for (i, op_data) in ops_data.into_iter().enumerate() {
         let (choice, inner_choice, key, inner_key, val) = op_data;
         let clock: VClock<_> = Dot::new(actor, i as u64).into();
-
+        let dot = clock.inc(actor);
         let op = match choice % 2 {
             0 => map::Op::Up {
-                dot: clock.inc(actor),
+                dot,
                 key,
                 op: match inner_choice % 2 {
                     0 => map::Op::Up {
-                        dot: clock.inc(actor),
+                        dot,
                         key: inner_key,
                         op: mvreg::Op::Put { clock, val },
                     },

@@ -45,6 +45,12 @@ impl<A: Actor> Default for VClock<A> {
 
 impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
+        // This algorithm is pretty naive, I think there's a way to
+        // just track if the ordering changes as we iterate over the
+        // active dots zipped by actor.
+        // ie. it's None if the ordering changes from Less to Greator
+        //     or vice-versa.
+
         if self == other {
             Some(Ordering::Equal)
         } else if other.dots.iter().all(|(w, c)| self.get(w) >= *c) {
