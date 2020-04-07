@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use crate::vclock::{Actor, VClock};
 
 /// State based CRDT's replicate by transmitting the entire CRDT state.
@@ -31,7 +29,7 @@ pub trait CmRDT {
     /// Applying ops in any of the valid orders will converge to the same CRDT state
     ///
     /// Op's must be idempotent, meaning any Op may be applied more than once.
-    type Op: Debug;
+    type Op;
 
     /// Apply an Op to the CRDT
     fn apply(&mut self, op: Self::Op);
@@ -50,7 +48,7 @@ pub trait Causal<A: Actor> {
 /// E.g. the unicity of timestamp assumption in LWWReg
 pub trait FunkyCvRDT {
     /// User chosen error type
-    type Error: Debug;
+    type Error;
 
     /// Merge the given CRDT into the current CRDT.
     fn merge(&mut self, other: Self) -> Result<(), Self::Error>;
@@ -63,10 +61,10 @@ pub trait FunkyCvRDT {
 /// E.g. the unicity property of timestamp assumption in LWWReg
 pub trait FunkyCmRDT {
     /// User chosen error type
-    type Error: Debug;
+    type Error;
 
     /// Same Op laws from non-funky CmRDT above
-    type Op: Debug + Clone;
+    type Op;
 
     /// Apply an Op to the CRDT
     fn apply(&mut self, op: Self::Op) -> Result<(), Self::Error>;

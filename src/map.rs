@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
 use std::mem;
 
 use serde::{Deserialize, Serialize};
@@ -10,17 +9,13 @@ use crate::ctx::{AddCtx, ReadCtx, RmCtx};
 use crate::traits::{Causal, CmRDT, CvRDT};
 use crate::vclock::{Actor, Dot, VClock};
 
-/// Key Trait alias to reduce redundancy in type decl.
-pub trait Key: Debug + Ord + Clone {}
-impl<T: Debug + Ord + Clone> Key for T {}
-
 /// Val Trait alias to reduce redundancy in type decl.
-pub trait Val<A: Actor>: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT {}
+pub trait Val<A: Actor>: Clone + Causal<A> + CmRDT + CvRDT {}
 
 impl<A, T> Val<A> for T
 where
     A: Actor,
-    T: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT,
+    T: Clone + Causal<A> + CmRDT + CvRDT,
 {
 }
 
@@ -34,7 +29,7 @@ where
 /// See examples/reset_remove.rs for an example of reset-remove semantics
 /// in action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Map<K: Key, V: Val<A>, A: Actor> {
+pub struct Map<K: Ord, V: Val<A>, A: Actor> {
     // This clock stores the current version of the Map, it should
     // be greator or equal to all Entry.clock's in the Map.
     clock: VClock<A>,
@@ -53,7 +48,7 @@ struct Entry<V: Val<A>, A: Actor> {
 
 /// Operations which can be applied to the Map CRDT
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Op<K: Key, V: Val<A>, A: Actor> {
+pub enum Op<K: Ord, V: Val<A>, A: Actor> {
     /// Remove a key from the map
     Rm {
         /// The clock under which we will perform this remove
@@ -72,7 +67,7 @@ pub enum Op<K: Key, V: Val<A>, A: Actor> {
     },
 }
 
-impl<V: Val<A>, A: Actor> Default for Entry<V, A> {
+impl<V: Val<A> + Default, A: Actor> Default for Entry<V, A> {
     fn default() -> Self {
         Self {
             clock: VClock::default(),
@@ -81,13 +76,13 @@ impl<V: Val<A>, A: Actor> Default for Entry<V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Default for Map<K, V, A> {
+impl<K: Ord, V: Val<A>, A: Actor> Default for Map<K, V, A> {
     fn default() -> Self {
         Map::new()
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
+impl<K: Ord, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     fn forget(&mut self, clock: &VClock<A>) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
@@ -118,7 +113,7 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> CmRDT for Map<K, V, A> {
     type Op = Op<K, V, A>;
 
     fn apply(&mut self, op: Self::Op) {
@@ -142,7 +137,7 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
+impl<K: Ord, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
     fn merge(&mut self, other: Self) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
@@ -224,7 +219,7 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
+impl<K: Ord, V: Val<A>, A: Actor> Map<K, V, A> {
     /// Constructs an empty Map
     pub fn new() -> Self {
         Self {
@@ -271,6 +266,7 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     where
         F: FnOnce(&V, AddCtx<A>) -> V::Op,
         I: Into<K>,
+        V: Default,
     {
         let key = key.into();
         let dot = ctx.dot.clone();

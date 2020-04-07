@@ -1,32 +1,24 @@
-use std::fmt::Debug;
-
 use serde::{Deserialize, Serialize};
 
 use crate::error::{self, Error, Result};
 use crate::traits::{FunkyCmRDT, FunkyCvRDT};
-
-/// Trait bound alias for lwwreg vals
-pub trait Val: Debug + Clone + PartialEq {}
-impl<T: Debug + Clone + PartialEq> Val for T {}
-
-/// `Marker` must grow monotonically *and* must be globally unique
-pub trait Marker: Debug + Clone + Ord {}
-impl<T: Debug + Clone + Ord> Marker for T {}
 
 /// `LWWReg` is a simple CRDT that contains an arbitrary value
 /// along with an `Ord` that tracks causality. It is the responsibility
 /// of the user to guarantee that the source of the causal element
 /// is monotonic. Don't use timestamps unless you are comfortable
 /// with divergence.
+///
+/// `M` is a marker. It must grow monotonically *and* must be globally unique
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct LWWReg<V: Val, M: Marker> {
+pub struct LWWReg<V, M> {
     /// `val` is the opaque element contained within this CRDT
     pub val: V,
     /// `marker` should be a monotonic value associated with this val
     pub marker: M,
 }
 
-impl<V: Val + Default, M: Marker + Default> Default for LWWReg<V, M> {
+impl<V: Default, M: Ord + Default> Default for LWWReg<V, M> {
     fn default() -> Self {
         Self {
             val: V::default(),
@@ -35,7 +27,7 @@ impl<V: Val + Default, M: Marker + Default> Default for LWWReg<V, M> {
     }
 }
 
-impl<V: Val, M: Marker> FunkyCvRDT for LWWReg<V, M> {
+impl<V: PartialEq, M: Ord> FunkyCvRDT for LWWReg<V, M> {
     type Error = error::Error;
 
     /// Combines two `LWWReg` instances according to the marker that
@@ -53,7 +45,7 @@ impl<V: Val, M: Marker> FunkyCvRDT for LWWReg<V, M> {
     }
 }
 
-impl<V: Val, M: Marker> FunkyCmRDT for LWWReg<V, M> {
+impl<V: PartialEq, M: Ord> FunkyCmRDT for LWWReg<V, M> {
     type Error = error::Error;
     // LWWReg's are small enough that we can replicate
     // the entire state as an Op
@@ -64,7 +56,7 @@ impl<V: Val, M: Marker> FunkyCmRDT for LWWReg<V, M> {
     }
 }
 
-impl<V: Val, M: Marker> LWWReg<V, M> {
+impl<V: PartialEq, M: Ord> LWWReg<V, M> {
     /// Updates value witnessed by the given marker.
     /// An Err is returned if the given marker is exactly
     /// equal to the current marker

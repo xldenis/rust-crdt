@@ -15,7 +15,7 @@
 // TODO: we have a mixture of language here with witness and actor. Clean this up
 use std::cmp::{self, Ordering};
 use std::collections::{btree_map, BTreeMap};
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Display};
 use std::hash::Hash;
 use std::mem;
 
@@ -25,8 +25,8 @@ use crate::traits::{Causal, CmRDT, CvRDT};
 
 /// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
 /// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Hash + Debug {}
-impl<A: Ord + Clone + Hash + Debug> Actor for A {}
+pub trait Actor: Ord + Clone + Hash {}
+impl<A: Ord + Clone + Hash> Actor for A {}
 
 /// Dot is a version marker for a single actor
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

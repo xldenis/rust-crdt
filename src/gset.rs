@@ -1,7 +1,5 @@
-use std::collections::BTreeSet;
-use std::fmt::Debug;
-
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 use crate::traits::{CmRDT, CvRDT};
 
@@ -36,7 +34,7 @@ impl<T: Ord + Clone> CvRDT for GSet<T> {
     }
 }
 
-impl<T: Ord + Debug> CmRDT for GSet<T> {
+impl<T: Ord> CmRDT for GSet<T> {
     type Op = T;
 
     fn apply(&mut self, op: Self::Op) {
