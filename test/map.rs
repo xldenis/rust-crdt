@@ -129,7 +129,7 @@ fn test_remove() {
     let mut inner_map: Map<TKey, TVal, TActor> = Map::new();
     inner_map.apply(inner_map.update(110, add_ctx.clone(), |r, ctx| r.write(0, ctx)));
 
-    m.apply(m.update(101, add_ctx.clone(), |m, ctx| {
+    m.apply(m.update(101, add_ctx, |m, ctx| {
         m.update(110, ctx, |r, ctx| r.write(0, ctx))
     }));
 

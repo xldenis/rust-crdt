@@ -44,7 +44,7 @@ quickcheck! {
         let mut a_glb = a.clone();
         a_glb.glb(&b);
 
-        let mut b_glb = b.clone();
+        let mut b_glb = b;
         b_glb.glb(&a);
 
         a_glb == b_glb
@@ -152,6 +152,7 @@ fn test_merge_same_id() {
 }
 
 #[test]
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn test_vclock_ordering() {
     assert_eq!(VClock::<i8>::new(), VClock::new());
 

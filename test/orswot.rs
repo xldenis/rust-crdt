@@ -24,7 +24,7 @@ quickcheck! {
             for op in ops.iter() {
                 let actor_opt = match op {
                     Op::Add { dot, ..} => Some(dot.actor),
-                    Op::Rm { clock, ..} => clock.iter().nth(0).map(|d| *d.actor) // any actor will do for Rm
+                    Op::Rm { clock, ..} => clock.iter().next().map(|d| *d.actor) // any actor will do for Rm
                 };
 
                 if let Some(actor) = actor_opt {

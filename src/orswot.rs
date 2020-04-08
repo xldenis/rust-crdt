@@ -301,13 +301,11 @@ impl<A: Actor + Arbitrary, M: Member + Arbitrary> Arbitrary for Op<M, A> {
             members.insert(M::arbitrary(g));
         }
 
-        let op = match u8::arbitrary(g) % 2 {
+        match u8::arbitrary(g) % 2 {
             0 => Op::Add { members, dot },
             1 => Op::Rm { members, clock },
             _ => panic!("tried to generate invalid op"),
-        };
-
-        op
+        }
     }
 
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
