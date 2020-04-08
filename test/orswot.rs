@@ -7,32 +7,11 @@ use std::iter::once;
 
 const ACTOR_MAX: u8 = 11;
 
-#[derive(Debug, Clone)]
-struct OpVec {
-    ops: Vec<(u8, Op<u8, u8>)>,
-}
-
-fn build_opvec(op_prims: Vec<(u8, HashSet<u8>, u8, u64)>) -> OpVec {
-    let mut ops = Vec::new();
-    for (actor, members, choice, counter) in op_prims {
-        let op = match choice % 2 {
-            0 => Op::Add {
-                members,
-                dot: Dot { actor, counter },
-            },
-            _ => Op::Rm {
-                members,
-                clock: Dot { actor, counter }.into(),
-            },
-        };
-        ops.push((actor, op));
-    }
-    OpVec { ops }
-}
+type Member = u8;
+type Actor = u8;
 
 quickcheck! {
-    fn prop_merge_converges(op_prims: Vec<(u8, HashSet<u8>, u8, u64)>) -> bool {
-        let ops = build_opvec(op_prims);
+    fn prop_merge_converges(ops: Vec<Op<Member, Actor>>) -> bool {
         // Different interleavings of ops applied to different
         // orswots should all converge when merged. Apply the
         // ops to increasing numbers of witnessing orswots,
@@ -40,13 +19,20 @@ quickcheck! {
         // all converged.
         let mut result = None;
         for i in 2..ACTOR_MAX {
-            let mut witnesses: Vec<Orswot<u8, u8>> =
+            let mut witnesses: Vec<Orswot<Member, Actor>> =
                 (0..i).map(|_| Orswot::new()).collect();
-            for op_pair in ops.ops.iter() {
-                let (actor, op) = op_pair;
-                let witness = &mut witnesses[(actor % i) as usize];
-                witness.apply(op.clone());
+            for op in ops.iter() {
+                let actor_opt = match op {
+                    Op::Add { dot, ..} => Some(dot.actor),
+                    Op::Rm { clock, ..} => clock.iter().nth(0).map(|d| *d.actor) // any actor will do for Rm
+                };
+
+                if let Some(actor) = actor_opt {
+                    let witness = &mut witnesses[(actor % i) as usize];
+                    witness.apply(op.clone());
+                }
             }
+
             let mut merged = Orswot::new();
             for witness in witnesses {
                 merged.merge(witness);
@@ -237,7 +223,7 @@ fn test_dead_node_update() {
 
 #[test]
 fn test_reset_remove_semantics() {
-    let mut m1: Map<u8, Orswot<u8, &str>, &str> = Map::new();
+    let mut m1: Map<u8, Orswot<Member, &str>, &str> = Map::new();
 
     m1.apply(
         m1.update(101, m1.get(&101).derive_add_ctx("A"), |set, ctx| {
