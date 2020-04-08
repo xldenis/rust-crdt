@@ -260,12 +260,18 @@ impl<K: Ord, V: Val<A>, A: Actor> Map<K, V, A> {
         }
     }
 
-    /// Update a value under some key, if the key is not present in the map,
-    /// the updater will be given the result of V::default().
-    pub fn update<F, I>(&self, key: I, ctx: AddCtx<A>, f: F) -> Op<K, V, A>
+    /// Update a value under some key.
+    ///
+    /// If the key is not present in the map, the updater will be given the
+    /// result of `V::default()`. The `default` value is used to ensure
+    /// eventual consistency since our `Map`'s values are CRDTs themselves.
+    ///
+    /// The `impl Into<K>` bound provides a nice way of providing an input key that
+    /// can easily convert to the `Map`'s key. For example, we can call this function
+    /// with `"hello": &str` and it can be converted to `String`.
+    pub fn update<F>(&self, key: impl Into<K>, ctx: AddCtx<A>, f: F) -> Op<K, V, A>
     where
         F: FnOnce(&V, AddCtx<A>) -> V::Op,
-        I: Into<K>,
         V: Default,
     {
         let key = key.into();
@@ -279,6 +285,10 @@ impl<K: Ord, V: Val<A>, A: Actor> Map<K, V, A> {
     }
 
     /// Remove an entry from the Map
+    ///
+    /// The `impl Into<K>` bound provides a nice way of providing an input key that
+    /// can easily convert to the `Map`'s key. For example, we can call this function
+    /// with `"hello": &str` and it can be converted to `String`.
     pub fn rm(&self, key: impl Into<K>, ctx: RmCtx<A>) -> Op<K, V, A> {
         let mut keyset = BTreeSet::new();
         keyset.insert(key.into());
