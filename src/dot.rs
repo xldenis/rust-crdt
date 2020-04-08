@@ -1,6 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::cmp::{Ordering, PartialOrd};
 use std::hash::{Hash, Hasher};
+
+use quickcheck::{Arbitrary, Gen};
+use serde::{Deserialize, Serialize};
 
 use crate::Actor;
 
@@ -55,25 +57,36 @@ impl<A: PartialOrd> PartialOrd for Dot<A> {
     }
 }
 
+impl<A: Arbitrary> Arbitrary for Dot<A> {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        Dot {
+            actor: A::arbitrary(g),
+            counter: u64::arbitrary(g) % 100, // TODO: is this fair?
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use quickcheck::quickcheck;
 
-    #[test]
-    fn test_inc() {
-        let dot = Dot::new(32, 1);
-        assert_eq!(dot.inc(), Dot::new(32, 2));
-    }
+    quickcheck! {
+        fn inc_increments_only_the_counter(dot: Dot<u8>) -> bool {
+            dot.inc() == Dot::new(dot.actor, dot.counter + 1)
+        }
 
-    #[test]
-    fn test_partial_order() {
-        let a = Dot::new(32, 1);
-        let b = Dot::new(32, 2);
-        let c = Dot::new(56, 1);
+        fn test_partial_order(a: Dot<u8>, b: Dot<u8>) -> bool {
+            let cmp_ab = a.partial_cmp(&b);
+            let cmp_ba = b.partial_cmp(&a);
 
-        assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
-        assert_eq!(b.partial_cmp(&a), Some(Ordering::Greater));
-        assert_eq!(a.partial_cmp(&a), Some(Ordering::Equal));
-        assert_eq!(a.partial_cmp(&c), None);
+            match (cmp_ab, cmp_ba) {
+                (None, None) => a.actor != b.actor,
+                (Some(Ordering::Less), Some(Ordering::Greater)) => a.actor == b.actor && a.counter < b.counter,
+                (Some(Ordering::Greater), Some(Ordering::Less)) => a.actor == b.actor && a.counter > b.counter,
+                (Some(Ordering::Equal), Some(Ordering::Equal)) => a.actor == b.actor && a.counter == b.counter,
+                _ => false
+            }
+        }
     }
 }

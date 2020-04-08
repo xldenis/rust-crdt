@@ -16,31 +16,27 @@ quickcheck! {
         clock == clock.clone().into_iter().collect()
     }
 
-    fn prop_dots_are_commutative_in_from_iter(dots: Vec<(u8, u64)>) -> bool {
+    fn prop_dots_are_commutative_in_from_iter(dots: Vec<Dot<u8>>) -> bool {
         // TODO: is there a better way to check comutativity of dots?
         let reverse: VClock<u8> = dots.clone()
             .into_iter()
-            .map(|(a, c)| Dot::new(a, c))
             .rev()
             .collect();
         let forward: VClock<u8> = dots
             .into_iter()
-            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         reverse == forward
     }
 
-    fn prop_idempotent_dots_in_from_iter(dots: Vec<(u8, u64)>) -> bool {
+    fn prop_idempotent_dots_in_from_iter(dots: Vec<Dot<u8>>) -> bool {
         let single: VClock<u8> = dots.clone()
             .into_iter()
-            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         let double: VClock<u8> = dots.clone()
             .into_iter()
             .chain(dots.into_iter())
-            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         single == double

@@ -46,8 +46,11 @@ pub mod map;
 /// This module contains context for editing a CRDT.
 pub mod ctx;
 
-// Top-level re-exports for CRDT structures.
+/// Top-level re-exports for CRDT structures.
 pub use crate::{
     dot::Dot, gcounter::GCounter, gset::GSet, lwwreg::LWWReg, map::Map, mvreg::MVReg,
     orswot::Orswot, pncounter::PNCounter, vclock::VClock,
 };
+
+/// A re-export of the quickcheck crate for use in property based testing of user code
+pub use quickcheck;
