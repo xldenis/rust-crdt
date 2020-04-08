@@ -309,7 +309,7 @@ impl<A: Actor + Arbitrary> Arbitrary for VClock<A> {
     fn arbitrary<G: Gen>(g: &mut G) -> Self {
         let mut clock = VClock::new();
 
-        for _ in 0..u8::arbitrary(g) {
+        for _ in 0..u8::arbitrary(g) % 10 {
             clock.apply(Dot::arbitrary(g));
         }
 

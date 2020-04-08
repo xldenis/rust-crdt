@@ -8,6 +8,7 @@ use std::mem;
 use serde::{Deserialize, Serialize};
 
 use crate::ctx::{AddCtx, ReadCtx, RmCtx};
+use crate::quickcheck::{Arbitrary, Gen};
 use crate::{Actor, Causal, CmRDT, CvRDT, Dot, VClock};
 
 /// Trait bound alias for members in a set
@@ -287,6 +288,70 @@ impl<M: Member, A: Actor> Orswot<M, A> {
         for (clock, entries) in deferred.into_iter() {
             self.apply_rm(entries, clock)
         }
+    }
+}
+
+impl<A: Actor + Arbitrary, M: Member + Arbitrary> Arbitrary for Op<M, A> {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        let dot = Dot::arbitrary(g);
+        let clock = VClock::arbitrary(g);
+
+        let mut members = HashSet::new();
+        for _ in 0..u8::arbitrary(g) % 10 {
+            members.insert(M::arbitrary(g));
+        }
+
+        let op = match u8::arbitrary(g) % 2 {
+            0 => Op::Add { members, dot },
+            1 => Op::Rm { members, clock },
+            _ => panic!("tried to generate invalid op"),
+        };
+
+        op
+    }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let mut shrunk_ops = Vec::new();
+        match self {
+            Op::Add { members, dot } => {
+                for m in members.iter() {
+                    let mut shrunk_members = members.clone();
+                    shrunk_members.remove(m);
+
+                    shrunk_ops.push(Op::Add {
+                        members: shrunk_members,
+                        dot: dot.clone(),
+                    });
+                }
+
+                dot.shrink().for_each(|shrunk_dot| {
+                    shrunk_ops.push(Op::Add {
+                        members: members.clone(),
+                        dot: shrunk_dot,
+                    })
+                });
+            }
+            Op::Rm { members, clock } => {
+                for m in members.iter() {
+                    let mut shrunk_members = members.clone();
+                    shrunk_members.remove(m);
+
+                    shrunk_ops.push(Op::Rm {
+                        members: shrunk_members,
+                        clock: clock.clone(),
+                    });
+                }
+
+                clock.shrink().for_each(|shrunk_clock| {
+                    shrunk_ops.push(Op::Rm {
+                        members: members.clone(),
+                        clock: shrunk_clock,
+                    })
+                });
+            }
+        }
+
+        Box::new(shrunk_ops.into_iter())
     }
 }
 

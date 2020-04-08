@@ -60,12 +60,15 @@ impl<A: Arbitrary + Clone> Arbitrary for Dot<A> {
     fn arbitrary<G: Gen>(g: &mut G) -> Self {
         Dot {
             actor: A::arbitrary(g),
-            counter: u64::arbitrary(g) % 100, // TODO: is this fair?
+            counter: u64::arbitrary(g) % 50,
         }
     }
 
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let shrunk_dots = vec![Self::new(self.actor.clone(), self.counter - 1)];
+        let mut shrunk_dots = Vec::new();
+        if self.counter > 0 {
+            shrunk_dots.push(Self::new(self.actor.clone(), self.counter - 1));
+        }
         Box::new(shrunk_dots.into_iter())
     }
 }
