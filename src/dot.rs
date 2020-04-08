@@ -1,10 +1,9 @@
 use std::cmp::{Ordering, PartialOrd};
 use std::hash::{Hash, Hasher};
 
-use quickcheck::{Arbitrary, Gen};
 use serde::{Deserialize, Serialize};
 
-use crate::Actor;
+use crate::quickcheck::{Arbitrary, Gen};
 
 /// Dot is a version marker for a single actor
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +14,7 @@ pub struct Dot<A> {
     pub counter: u64,
 }
 
-impl<A: Actor> Dot<A> {
+impl<A: Clone> Dot<A> {
     /// Build a Dot from an actor and counter
     pub fn new(actor: A, counter: u64) -> Self {
         Self { actor, counter }
@@ -57,12 +56,17 @@ impl<A: PartialOrd> PartialOrd for Dot<A> {
     }
 }
 
-impl<A: Arbitrary> Arbitrary for Dot<A> {
+impl<A: Arbitrary + Clone> Arbitrary for Dot<A> {
     fn arbitrary<G: Gen>(g: &mut G) -> Self {
         Dot {
             actor: A::arbitrary(g),
             counter: u64::arbitrary(g) % 100, // TODO: is this fair?
         }
+    }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let shrunk_dots = vec![Self::new(self.actor.clone(), self.counter - 1)];
+        Box::new(shrunk_dots.into_iter())
     }
 }
 

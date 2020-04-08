@@ -20,6 +20,7 @@ use std::mem;
 
 use serde::{Deserialize, Serialize};
 
+use crate::quickcheck::{Arbitrary, Gen};
 use crate::{Actor, Causal, CmRDT, CvRDT, Dot};
 
 /// A `VClock` is a standard vector clock.
@@ -301,5 +302,34 @@ impl<A: Actor> From<Dot<A>> for VClock<A> {
         let mut clock = VClock::new();
         clock.apply(dot);
         clock
+    }
+}
+
+impl<A: Actor + Arbitrary> Arbitrary for VClock<A> {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        let mut clock = VClock::new();
+
+        for _ in 0..u8::arbitrary(g) {
+            clock.apply(Dot::arbitrary(g));
+        }
+
+        clock
+    }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let mut shrunk_clocks = Vec::new();
+        for dot in self.clone().into_iter() {
+            let clock_without_dot: Self = self.clone().into_iter().filter(|d| d != &dot).collect();
+
+            for shrunk_dot in dot.shrink() {
+                let mut clock = clock_without_dot.clone();
+                clock.apply(shrunk_dot);
+                shrunk_clocks.push(clock);
+            }
+
+            shrunk_clocks.push(clock_without_dot);
+        }
+
+        Box::new(shrunk_clocks.into_iter())
     }
 }
