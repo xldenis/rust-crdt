@@ -76,13 +76,13 @@ impl<V: Val<A> + Default, A: Actor> Default for Entry<V, A> {
     }
 }
 
-impl<K: Ord, V: Val<A>, A: Actor> Default for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> Default for Map<K, V, A> {
     fn default() -> Self {
         Map::new()
     }
 }
 
-impl<K: Ord, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> Causal<A> for Map<K, V, A> {
     fn forget(&mut self, clock: &VClock<A>) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
@@ -137,7 +137,7 @@ impl<K: Ord, V: Val<A> + Default, A: Actor> CmRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Ord, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> CvRDT for Map<K, V, A> {
     fn merge(&mut self, other: Self) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
@@ -219,7 +219,7 @@ impl<K: Ord, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Ord, V: Val<A>, A: Actor> Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> Map<K, V, A> {
     /// Constructs an empty Map
     pub fn new() -> Self {
         Self {
@@ -272,7 +272,6 @@ impl<K: Ord, V: Val<A>, A: Actor> Map<K, V, A> {
     pub fn update<F>(&self, key: impl Into<K>, ctx: AddCtx<A>, f: F) -> Op<K, V, A>
     where
         F: FnOnce(&V, AddCtx<A>) -> V::Op,
-        V: Default,
     {
         let key = key.into();
         let dot = ctx.dot.clone();
