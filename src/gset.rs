@@ -17,12 +17,18 @@ impl<T: Ord> Default for GSet<T> {
     }
 }
 
+impl<T: Ord> From<GSet<T>> for BTreeSet<T> {
+    fn from(gset: GSet<T>) -> BTreeSet<T> {
+        gset.value
+    }
+}
+
 impl<T: Ord + Clone> CvRDT for GSet<T> {
     /// Merges another `GSet` into this one.
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
     /// use crdts::{GSet, CvRDT, CmRDT};
     /// let (mut a, mut b) = (GSet::new(), GSet::new());
     /// a.insert(1);
@@ -56,7 +62,7 @@ impl<T: Ord> GSet<T> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
     /// use crdts::GSet;
     /// let mut a = GSet::new();
     /// a.insert(1);
@@ -70,7 +76,7 @@ impl<T: Ord> GSet<T> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
     /// use crdts::GSet;
     /// let mut a = GSet::new();
     /// a.insert(1);
@@ -78,5 +84,28 @@ impl<T: Ord> GSet<T> {
     /// ```
     pub fn contains(&self, element: &T) -> bool {
         self.value.contains(element)
+    }
+
+    /// Returns the `BTreeSet` for this `GSet`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use crdts::GSet;
+    /// use std::collections::BTreeSet;
+    /// let mut a = GSet::new();
+    /// let mut b = BTreeSet::new();
+    /// for i in 1..10 {
+    ///     a.insert(i);
+    ///     b.insert(i);
+    /// }
+    ///
+    /// assert_eq!(a.read(), b);
+    /// ```
+    pub fn read(&self) -> BTreeSet<T>
+    where
+        T: Clone,
+    {
+        self.value.clone()
     }
 }
