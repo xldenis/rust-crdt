@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Display};
 use std::mem;
 
 use serde::{Deserialize, Serialize};
@@ -7,10 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::ctx::{AddCtx, ReadCtx};
 use crate::traits::{Causal, CmRDT, CvRDT};
 use crate::vclock::{Actor, VClock};
-
-/// A Trait alias for the possible values MVReg's may hold
-pub trait Val: Debug + Clone {}
-impl<T: Debug + Clone> Val for T {}
 
 /// MVReg (Multi-Value Register)
 /// On concurrent writes, we will keep all values for which
@@ -34,13 +30,13 @@ impl<T: Debug + Clone> Val for T {}
 /// assert_eq!(r1.read().val, vec!["bob", "alice"]);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MVReg<V: Val, A: Actor> {
+pub struct MVReg<V, A: Actor> {
     vals: Vec<(VClock<A>, V)>,
 }
 
 /// Defines the set of operations over the MVReg
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Op<V: Val, A: Actor> {
+pub enum Op<V, A: Actor> {
     /// Put a value
     Put {
         /// context of the operation
@@ -50,7 +46,7 @@ pub enum Op<V: Val, A: Actor> {
     },
 }
 
-impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
+impl<V: Display, A: Actor + Display> Display for MVReg<V, A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "|")?;
         for (i, (ctx, val)) in self.vals.iter().enumerate() {
@@ -63,7 +59,7 @@ impl<V: Val + Display, A: Actor + Display> Display for MVReg<V, A> {
     }
 }
 
-impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
+impl<V: PartialEq, A: Actor> PartialEq for MVReg<V, A> {
     fn eq(&self, other: &Self) -> bool {
         for dot in self.vals.iter() {
             let num_found = other.vals.iter().filter(|d| d == &dot).count();
@@ -87,9 +83,9 @@ impl<V: Val + PartialEq, A: Actor> PartialEq for MVReg<V, A> {
     }
 }
 
-impl<V: Val + Eq, A: Actor> Eq for MVReg<V, A> {}
+impl<V: Eq, A: Actor> Eq for MVReg<V, A> {}
 
-impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
+impl<V: Clone, A: Actor> Causal<A> for MVReg<V, A> {
     fn forget(&mut self, clock: &VClock<A>) {
         self.vals = self
             .vals
@@ -107,13 +103,13 @@ impl<V: Val, A: Actor> Causal<A> for MVReg<V, A> {
     }
 }
 
-impl<V: Val, A: Actor> Default for MVReg<V, A> {
+impl<V, A: Actor> Default for MVReg<V, A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V: Val, A: Actor> CvRDT for MVReg<V, A> {
+impl<V, A: Actor> CvRDT for MVReg<V, A> {
     fn merge(&mut self, other: Self) {
         self.vals = mem::replace(&mut self.vals, Vec::new())
             .into_iter()
@@ -131,7 +127,7 @@ impl<V: Val, A: Actor> CvRDT for MVReg<V, A> {
     }
 }
 
-impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
+impl<V, A: Actor> CmRDT for MVReg<V, A> {
     type Op = Op<V, A>;
 
     fn apply(&mut self, op: Self::Op) {
@@ -169,7 +165,7 @@ impl<V: Val, A: Actor> CmRDT for MVReg<V, A> {
     }
 }
 
-impl<V: Val, A: Actor> MVReg<V, A> {
+impl<V, A: Actor> MVReg<V, A> {
     /// Construct a new empty MVReg
     pub fn new() -> Self {
         Self { vals: Vec::new() }
@@ -184,8 +180,11 @@ impl<V: Val, A: Actor> MVReg<V, A> {
     }
 
     /// Consumes the register and returns the values
-    pub fn read(&self) -> ReadCtx<Vec<V>, A> {
-        let clock = self.clock().clone();
+    pub fn read(&self) -> ReadCtx<Vec<V>, A>
+    where
+        V: Clone,
+    {
+        let clock = self.clock();
         let concurrent_vals = self.vals.iter().cloned().map(|(_, v)| v).collect();
 
         ReadCtx {
@@ -197,7 +196,7 @@ impl<V: Val, A: Actor> MVReg<V, A> {
 
     /// Retrieve the current read context
     pub fn read_ctx(&self) -> ReadCtx<(), A> {
-        let clock = self.clock().clone();
+        let clock = self.clock();
         ReadCtx {
             add_clock: clock.clone(),
             rm_clock: clock,

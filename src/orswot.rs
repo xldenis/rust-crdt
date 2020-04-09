@@ -1,7 +1,6 @@
 /// Observed-Remove Set With Out Tombstones (ORSWOT), ported directly from `riak_dt`.
-use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
-use std::fmt::Debug;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::iter::{once, FromIterator};
 use std::mem;
@@ -13,8 +12,8 @@ use crate::traits::{Causal, CmRDT, CvRDT};
 use crate::vclock::{Actor, Dot, VClock};
 
 /// Trait bound alias for members in a set
-pub trait Member: Debug + Clone + Hash + Eq {}
-impl<T: Debug + Clone + Hash + Eq> Member for T {}
+pub trait Member: Clone + Hash + Eq {}
+impl<T: Clone + Hash + Eq> Member for T {}
 
 /// `Orswot` is an add-biased or-set without tombstones ported from
 /// the riak_dt CRDT library.

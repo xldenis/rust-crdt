@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
 use std::mem;
 
 use serde::{Deserialize, Serialize};
@@ -10,17 +9,13 @@ use crate::ctx::{AddCtx, ReadCtx, RmCtx};
 use crate::traits::{Causal, CmRDT, CvRDT};
 use crate::vclock::{Actor, Dot, VClock};
 
-/// Key Trait alias to reduce redundancy in type decl.
-pub trait Key: Debug + Ord + Clone {}
-impl<T: Debug + Ord + Clone> Key for T {}
-
 /// Val Trait alias to reduce redundancy in type decl.
-pub trait Val<A: Actor>: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT {}
+pub trait Val<A: Actor>: Clone + Causal<A> + CmRDT + CvRDT {}
 
 impl<A, T> Val<A> for T
 where
     A: Actor,
-    T: Debug + Default + Clone + Causal<A> + CmRDT + CvRDT,
+    T: Clone + Causal<A> + CmRDT + CvRDT,
 {
 }
 
@@ -34,7 +29,7 @@ where
 /// See examples/reset_remove.rs for an example of reset-remove semantics
 /// in action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Map<K: Key, V: Val<A>, A: Actor> {
+pub struct Map<K: Ord, V: Val<A>, A: Actor> {
     // This clock stores the current version of the Map, it should
     // be greator or equal to all Entry.clock's in the Map.
     clock: VClock<A>,
@@ -53,7 +48,7 @@ struct Entry<V: Val<A>, A: Actor> {
 
 /// Operations which can be applied to the Map CRDT
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Op<K: Key, V: Val<A>, A: Actor> {
+pub enum Op<K: Ord, V: Val<A>, A: Actor> {
     /// Remove a key from the map
     Rm {
         /// The clock under which we will perform this remove
@@ -72,7 +67,7 @@ pub enum Op<K: Key, V: Val<A>, A: Actor> {
     },
 }
 
-impl<V: Val<A>, A: Actor> Default for Entry<V, A> {
+impl<V: Val<A> + Default, A: Actor> Default for Entry<V, A> {
     fn default() -> Self {
         Self {
             clock: VClock::default(),
@@ -81,13 +76,13 @@ impl<V: Val<A>, A: Actor> Default for Entry<V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Default for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> Default for Map<K, V, A> {
     fn default() -> Self {
         Map::new()
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> Causal<A> for Map<K, V, A> {
     fn forget(&mut self, clock: &VClock<A>) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
@@ -118,7 +113,7 @@ impl<K: Key, V: Val<A>, A: Actor> Causal<A> for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> CmRDT for Map<K, V, A> {
     type Op = Op<K, V, A>;
 
     fn apply(&mut self, op: Self::Op) {
@@ -142,7 +137,7 @@ impl<K: Key, V: Val<A>, A: Actor> CmRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> CvRDT for Map<K, V, A> {
     fn merge(&mut self, other: Self) {
         self.entries = mem::replace(&mut self.entries, BTreeMap::new())
             .into_iter()
@@ -224,7 +219,7 @@ impl<K: Key, V: Val<A>, A: Actor> CvRDT for Map<K, V, A> {
     }
 }
 
-impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
+impl<K: Ord, V: Val<A> + Default, A: Actor> Map<K, V, A> {
     /// Constructs an empty Map
     pub fn new() -> Self {
         Self {
@@ -265,12 +260,18 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
         }
     }
 
-    /// Update a value under some key, if the key is not present in the map,
-    /// the updater will be given the result of V::default().
-    pub fn update<F, I>(&self, key: I, ctx: AddCtx<A>, f: F) -> Op<K, V, A>
+    /// Update a value under some key.
+    ///
+    /// If the key is not present in the map, the updater will be given the
+    /// result of `V::default()`. The `default` value is used to ensure
+    /// eventual consistency since our `Map`'s values are CRDTs themselves.
+    ///
+    /// The `impl Into<K>` bound provides a nice way of providing an input key that
+    /// can easily convert to the `Map`'s key. For example, we can call this function
+    /// with `"hello": &str` and it can be converted to `String`.
+    pub fn update<F>(&self, key: impl Into<K>, ctx: AddCtx<A>, f: F) -> Op<K, V, A>
     where
         F: FnOnce(&V, AddCtx<A>) -> V::Op,
-        I: Into<K>,
     {
         let key = key.into();
         let dot = ctx.dot.clone();
@@ -283,12 +284,16 @@ impl<K: Key, V: Val<A>, A: Actor> Map<K, V, A> {
     }
 
     /// Remove an entry from the Map
+    ///
+    /// The `impl Into<K>` bound provides a nice way of providing an input key that
+    /// can easily convert to the `Map`'s key. For example, we can call this function
+    /// with `"hello": &str` and it can be converted to `String`.
     pub fn rm(&self, key: impl Into<K>, ctx: RmCtx<A>) -> Op<K, V, A> {
         let mut keyset = BTreeSet::new();
         keyset.insert(key.into());
         Op::Rm {
             clock: ctx.clock,
-            keyset: keyset,
+            keyset,
         }
     }
 
