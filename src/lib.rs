@@ -42,6 +42,9 @@ pub mod map;
 /// This module contains context for editing a CRDT.
 pub mod ctx;
 
+/// This module contains a Sequence.
+pub mod lseq;
+
 // Top-level re-exports for CRDT structures.
 pub use crate::{
     gcounter::GCounter,
