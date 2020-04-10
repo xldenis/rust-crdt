@@ -15,14 +15,14 @@ use crate::vclock::{Dot, Actor};
 #[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SiteId(u32);
 
-// identifier, clock, site id, char
+// identifier, clock, site id, element
 type Entry<T> = (Identifier, Dot<SiteId>, T);
 
 /// LSeq tree
 ///
 /// An LSeq tree is a CRDT for storing sequences of data (Strings, ordered lists)
-/// Internally it works by viewing each character as the leaf of a giant tree.
-/// The path that leads to a given character is called the 'identifier' of that character
+/// Internally it works by viewing each element as the leaf of a giant tree.
+/// The path that leads to a given element is called the 'identifier' of that element
 ///
 /// LSeq is very similar to the LOGOOT algorithm for representing sequences. The major change is
 /// that LSeq uses an **exponential** tree to store data. That means that at each level of the tree
@@ -38,19 +38,19 @@ pub struct LSeq<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op")]
 pub enum Op<T> {
-    /// Insert a character
+    /// Insert an element
     Insert {
         /// Identifier to insert at
         #[serde(flatten)]
         id: Identifier,
         /// clock of site that issued insertion
         dot: Dot<SiteId>,
-        /// char to insert
+        /// Element to insert
         c: T
     },
-    /// Delete a character
+    /// Delete an element
     Delete{
-        /// ??????
+        /// The original clock information of the insertion we're removing
         remote: Dot<SiteId>,
         #[serde(flatten)]
         /// Identifier to remove
@@ -87,7 +87,7 @@ impl<T : Clone> LSeq<T> {
         }
     }
 
-    /// Perform a local insertion of a character at a given position.
+    /// Perform a local insertion of an element at a given position.
     /// If the ix is greater than the length of the LSeq then it is appended to the end.
     pub fn local_insert(&mut self, ix: usize, c: T) -> Op<T> {
         let lower = self.gen.lower();
