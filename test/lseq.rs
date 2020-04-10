@@ -11,7 +11,7 @@ fn test_out_of_order_inserts() {
     site1.local_insert(1, 'c');
     site1.local_insert(1, 'b');
 
-    assert_eq!(site1.text(), "abc");
+    assert_eq!(site1.sequence().collect::<String>(), "abc");
 }
 
 #[test]
@@ -29,18 +29,18 @@ fn test_inserts() {
 
     for _ in 0..5000 {
         if rng.gen() {
-            let op = site1.local_insert(rng.gen_range(0, site1.text().len() + 1), s1.next().unwrap());
+            let op = site1.local_insert(rng.gen_range(0, site1.raw_entries().len() + 1), s1.next().unwrap());
             site2.apply(&op);
         } else {
-            let op = site2.local_insert(rng.gen_range(0, site2.text().len() + 1), s2.next().unwrap());
+            let op = site2.local_insert(rng.gen_range(0, site2.raw_entries().len() + 1), s2.next().unwrap());
             site1.apply(&op);
         }
     }
-    assert_eq!(site1.text(), site2.text());
+    assert_eq!(site1.sequence().collect::<String>(), site2.sequence().collect::<String>());
 }
 
 #[derive(Clone)]
-struct OperationList(pub Vec<Op>);
+struct OperationList(pub Vec<Op<char>>);
 
 use quickcheck::{Arbitrary, Gen};
 
@@ -58,13 +58,13 @@ impl Arbitrary for OperationList {
         let mut site1 = LSeq::new(g.gen());
         let ops = (0..size)
             .map(|_| {
-                if g.gen() || site1.text().len() == 0 {
-                    site1.local_insert(g.gen_range(0, site1.text().len() + 1), g.gen())
+                if g.gen() || site1.len() == 0 {
+                    site1.local_insert(g.gen_range(0, site1.len() + 1), g.gen())
                 } else {
-                    site1.local_delete(g.gen_range(0, site1.text().len()))
+                    site1.local_delete(g.gen_range(0, site1.len()))
                 }
             })
-            .collect::<Vec<Op>>();
+            .collect();
         OperationList(ops)
     }
     // implement shrinking ://
@@ -105,6 +105,9 @@ fn prop_inserts_and_deletes() {
         }
     }
 
-    assert_eq!(site1.text(), site2.text());
+    let site1_text = site1.sequence().collect::<String>();
+    let site2_text = site2.sequence().collect::<String>();
+
+    assert_eq!(site1_text, site2_text);
 }
 
