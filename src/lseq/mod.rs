@@ -72,7 +72,7 @@ impl<T : Clone> LSeq<T> {
         }
     }
 
-    fn do_delete(&mut self, ix: &Identifier) {
+    fn do_delete(&mut self, ix: Identifier) {
         // Deletes only have an effect if the identifier is already in the tree
         if let Ok(i) = self.seq.binary_search_by(|e| e.0.cmp(&ix)) {
             self.seq.remove(i);
@@ -80,9 +80,9 @@ impl<T : Clone> LSeq<T> {
     }
 
     /// Apply an operation to an LSeq instance.
-    pub fn apply(&mut self, op: &Op<T>){
+    pub fn apply(&mut self, op: Op<T>){
         match op {
-            Op::Insert{id, dot, c} => self.do_insert(id.clone(), dot.clone(), c.clone()),
+            Op::Insert{id, dot, c} => self.do_insert(id, dot, c),
             Op::Delete{id,..} => self.do_delete(id),
         }
     }
@@ -110,7 +110,7 @@ impl<T : Clone> LSeq<T> {
         };
         let op = Op::Insert{ id: ix_ident, dot: self.dot.clone(), c };
         self.dot.counter += 1;
-        self.apply(&op);
+        self.apply(op.clone());
         op
 
 
@@ -127,7 +127,7 @@ impl<T : Clone> LSeq<T> {
         let op = Op::Delete{ id: data.0, remote: data.1, dot: self.dot.clone() };
 
         self.dot.counter += 1;
-        self.apply(&op);
+        self.apply(op.clone());
         op
 
     }
