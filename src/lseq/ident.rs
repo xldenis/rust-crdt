@@ -77,8 +77,7 @@ impl<A: Actor> IdentGen<A> {
         }
     }
 
-    /// Allocates a new identifier between `p` and `q`.
-    /// Requires that `p < q` and will produce a new identifier `z` such that `p < z < q`.
+    /// Allocates a new identifier between `p` and `q` such that `p < z < q`.
     ///
     /// The way to think about this is to consider the problem of finding a short number between
     /// two decimal numbers. For example, between `0.2` and `0.4` we'd like to return `0.3`.
@@ -90,10 +89,14 @@ impl<A: Actor> IdentGen<A> {
     ///
     /// # Panics
     ///
-    /// * `p` must smaller than `q`, since we are finding an `Identifier` between the two.
-    /// * It could not find an index between a lower and upper bound, during the search.
+    /// * `p` equal to `q`.
+    /// * If no identifier of length less than 31 exists between `p` and `q`.
     pub fn alloc(&mut self, p: &Identifier<A>, q: &Identifier<A>) -> Identifier<A> {
-        assert!(p < q, "lower bound should be smaller than upper bound!");
+        assert!(p != q, "allocation range should be non-empty");
+        if q < p {
+            self.alloc(q, p);
+        }
+
         let mut depth = 0;
 
         // Descend both identifiers in parallel until we find room to insert an identifier
@@ -131,7 +134,7 @@ impl<A: Actor> IdentGen<A> {
                 // The two paths are fully equal which means that the site_ids MUST be different or
                 // we are in an invalid situation
                 (None, None) => {
-                    let max_for_depth = self.width_at(depth) - 1;
+                    let max_for_depth = self.width_at(depth as u32) - 1;
                     let next_index = self.index_in_range(1, max_for_depth, depth as u32);
                     return self.push_index(p, next_index);
                 }
@@ -148,14 +151,14 @@ impl<A: Actor> IdentGen<A> {
         loop {
             match p.path.get(depth) {
                 Some((ix, _)) => {
-                    if ix + 1 < self.width_at(depth) {
+                    if ix + 1 < self.width_at(depth as u32) {
                         let next_index =
-                            self.index_in_range(ix + 1, self.width_at(depth), depth as u32);
+                            self.index_in_range(ix + 1, self.width_at(depth as u32), depth as u32);
                         return self.replace_last(p, depth, next_index);
                     }
                 }
                 None => {
-                    let next_index = self.index_in_range(1, self.width_at(depth), depth as u32);
+                    let next_index = self.index_in_range(1, self.width_at(depth as u32), depth as u32);
                     return self.push_index(p, next_index);
                 }
             }
@@ -188,7 +191,7 @@ impl<A: Actor> IdentGen<A> {
         // anything on the next level, otherwise use the upper bound we've found.
         let upper = match q.path.get(depth) {
             Some(b) => b.0,
-            None => self.width_at(depth + 1),
+            None => self.width_at(depth as u32 + 1),
         };
         let next_index = self.index_in_range(1, upper, depth as u32);
         self.push_index(&ident, next_index)
@@ -207,8 +210,10 @@ impl<A: Actor> IdentGen<A> {
         ident
     }
 
-    fn width_at(&self, depth: usize) -> u64 {
-        2u64.pow(self.initial_base_bits + depth as u32)
+    fn width_at(&self, depth: u32) -> u64 {
+        assert!(self.initial_base_bits + depth  < 31, "maximum depth exceeded");
+
+        2u64.pow(self.initial_base_bits + depth)
     }
     // Generate an index in a given range at the specified depth.
     // Uses the allocation strategy of that depth, boundary+ or boundary- which is biased to the
@@ -264,15 +269,25 @@ mod test {
     use super::*;
     use quickcheck::{quickcheck, Arbitrary, Gen, TestResult};
 
+    fn valid_identifier(id: &Identifier<u32>) -> bool {
+        let mut d = 0;
+        if id.path.len() == 0 || id.len() > 27 { return false }
+        for (p, _) in id.path.iter() {
+            if p > &2u64.pow(3 + d) { return false }
+            d += 1;
+        }
+        true
+    }
+
     quickcheck! {
         fn prop_alloc(p: Identifier<u32>, q: Identifier<u32>) -> TestResult {
-            if p >= q || p.len() == 0 || q.len() == 0 {
+            if ! valid_identifier(&p) || ! valid_identifier(&q) {
                 return TestResult::discard();
             }
             let mut gen = IdentGen::new(0);
             let z = gen.alloc(&p, &q);
 
-            TestResult::from_bool(p < z && z < q)
+            TestResult::from_bool( (p < z && z < q) || (q < z && z < p))
         }
     }
 
