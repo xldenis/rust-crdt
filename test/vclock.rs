@@ -2,89 +2,68 @@ use crdts::*;
 
 use std::cmp::Ordering;
 
-pub fn build_vclock(prims: Vec<u8>) -> VClock<u8> {
-    let mut v = VClock::new();
-    for actor in prims {
-        v.apply(v.inc(actor));
-    }
-    v
-}
-
 quickcheck! {
-    fn prop_into_iter_produces_same_vclock(prims: Vec<u8>) -> bool {
-        let clock = build_vclock(prims);
+    fn prop_into_iter_produces_same_vclock(clock: VClock<u8>) -> bool {
         clock == clock.clone().into_iter().collect()
     }
 
-    fn prop_dots_are_commutative_in_from_iter(dots: Vec<(u8, u64)>) -> bool {
+    fn prop_dots_are_commutative_in_from_iter(dots: Vec<Dot<u8>>) -> bool {
         // TODO: is there a better way to check comutativity of dots?
         let reverse: VClock<u8> = dots.clone()
             .into_iter()
-            .map(|(a, c)| Dot::new(a, c))
             .rev()
             .collect();
         let forward: VClock<u8> = dots
             .into_iter()
-            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         reverse == forward
     }
 
-    fn prop_idempotent_dots_in_from_iter(dots: Vec<(u8, u64)>) -> bool {
+    fn prop_idempotent_dots_in_from_iter(dots: Vec<Dot<u8>>) -> bool {
         let single: VClock<u8> = dots.clone()
             .into_iter()
-            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         let double: VClock<u8> = dots.clone()
             .into_iter()
             .chain(dots.into_iter())
-            .map(|(a, c)| Dot::new(a, c))
             .collect();
 
         single == double
     }
 
-    fn prop_glb_self_is_nop(prims: Vec<u8>) -> bool {
-        let clock = build_vclock(prims);
+    fn prop_glb_self_is_nop(clock: VClock<u8>) -> bool {
         let mut clock_glb = clock.clone();
         clock_glb.glb(&clock);
 
         clock_glb == clock
     }
 
-    fn prop_glb_commutes(prims_a: Vec<u8>, prims_b: Vec<u8>) -> bool {
-        let a = build_vclock(prims_a);
-        let b = build_vclock(prims_b);
-
+    fn prop_glb_commutes(a: VClock<u8>, b: VClock<u8>) -> bool {
         let mut a_glb = a.clone();
         a_glb.glb(&b);
 
-        let mut b_glb = b.clone();
+        let mut b_glb = b;
         b_glb.glb(&a);
 
         a_glb == b_glb
     }
 
-    fn prop_forget_with_empty_is_nop(prims: Vec<u8>) -> bool {
-        let clock = build_vclock(prims);
+    fn prop_forget_with_empty_is_nop(clock: VClock<u8>) -> bool {
         let mut subbed  = clock.clone();
         subbed.forget(&VClock::new());
         subbed == clock
     }
 
-    fn prop_forget_self_is_empty(prims: Vec<u8>) -> bool {
-        let clock = build_vclock(prims);
+    fn prop_forget_self_is_empty(clock: VClock<u8>) -> bool {
         let mut subbed  = clock.clone();
         subbed.forget(&clock);
         subbed == VClock::new()
     }
 
-    fn prop_forget_is_empty_implies_equal_or_greator(prims_a: Vec<u8>, prims_b: Vec<u8>) -> bool {
-        let mut a = build_vclock(prims_a);
-        let b = build_vclock(prims_b);
-
+    fn prop_forget_is_empty_implies_equal_or_greator(a: VClock<u8>, b: VClock<u8>) -> bool {
+        let mut a = a;
         a.forget(&b);
 
         if a.is_empty() {
@@ -173,6 +152,7 @@ fn test_merge_same_id() {
 }
 
 #[test]
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn test_vclock_ordering() {
     assert_eq!(VClock::<i8>::new(), VClock::new());
 

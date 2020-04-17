@@ -12,7 +12,6 @@
 //! assert!(a > b);
 //! ```
 
-// TODO: we have a mixture of language here with witness and actor. Clean this up
 use std::cmp::{self, Ordering};
 use std::collections::{btree_map, BTreeMap};
 use std::fmt::{self, Display};
@@ -21,28 +20,8 @@ use std::mem;
 
 use serde::{Deserialize, Serialize};
 
-use crate::traits::{Causal, CmRDT, CvRDT};
-
-/// Common Actor type. Actors are unique identifier for every `thing` mutating a VClock.
-/// VClock based CRDT's will need to expose this Actor type to the user.
-pub trait Actor: Ord + Clone + Hash {}
-impl<A: Ord + Clone + Hash> Actor for A {}
-
-/// Dot is a version marker for a single actor
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Dot<A> {
-    /// The actor identifier
-    pub actor: A,
-    /// The current version of this actor
-    pub counter: u64,
-}
-
-impl<A: Actor> Dot<A> {
-    /// Build a Dot from an actor and counter
-    pub fn new(actor: A, counter: u64) -> Self {
-        Self { actor, counter }
-    }
-}
+use crate::quickcheck::{Arbitrary, Gen};
+use crate::{Actor, Causal, CmRDT, CvRDT, Dot};
 
 /// A `VClock` is a standard vector clock.
 /// It contains a set of "actors" and associated counters.
@@ -67,6 +46,12 @@ impl<A: Actor> Default for VClock<A> {
 
 impl<A: Actor> PartialOrd for VClock<A> {
     fn partial_cmp(&self, other: &VClock<A>) -> Option<Ordering> {
+        // This algorithm is pretty naive, I think there's a way to
+        // just track if the ordering changes as we iterate over the
+        // active dots zipped by actor.
+        // ie. it's None if the ordering changes from Less to Greator
+        //     or vice-versa.
+
         if self == other {
             Some(Ordering::Equal)
         } else if other.dots.iter().all(|(w, c)| self.get(w) >= *c) {
@@ -188,6 +173,18 @@ impl<A: Actor> VClock<A> {
         }
     }
 
+    /// Return the associated counter for this actor.
+    /// All actors not in the vclock have an implied count of 0
+    pub fn get(&self, actor: &A) -> u64 {
+        self.dots.get(actor).cloned().unwrap_or(0)
+    }
+
+    /// Return the Dot for a given actor
+    pub fn dot(&self, actor: A) -> Dot<A> {
+        let counter = self.get(&actor);
+        Dot::new(actor, counter)
+    }
+
     /// True if two vector clocks have diverged.
     ///
     /// # Examples
@@ -200,12 +197,6 @@ impl<A: Actor> VClock<A> {
     /// ```
     pub fn concurrent(&self, other: &VClock<A>) -> bool {
         self.partial_cmp(other).is_none()
-    }
-
-    /// Return the associated counter for this actor.
-    /// All actors not in the vclock have an implied count of 0
-    pub fn get(&self, actor: &A) -> u64 {
-        self.dots.get(actor).cloned().unwrap_or(0)
     }
 
     /// Returns `true` if this vector clock contains nothing.
@@ -311,5 +302,34 @@ impl<A: Actor> From<Dot<A>> for VClock<A> {
         let mut clock = VClock::new();
         clock.apply(dot);
         clock
+    }
+}
+
+impl<A: Actor + Arbitrary> Arbitrary for VClock<A> {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        let mut clock = VClock::new();
+
+        for _ in 0..u8::arbitrary(g) % 10 {
+            clock.apply(Dot::arbitrary(g));
+        }
+
+        clock
+    }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let mut shrunk_clocks = Vec::new();
+        for dot in self.clone().into_iter() {
+            let clock_without_dot: Self = self.clone().into_iter().filter(|d| d != &dot).collect();
+
+            for shrunk_dot in dot.shrink() {
+                let mut clock = clock_without_dot.clone();
+                clock.apply(shrunk_dot);
+                shrunk_clocks.push(clock);
+            }
+
+            shrunk_clocks.push(clock_without_dot);
+        }
+
+        Box::new(shrunk_clocks.into_iter())
     }
 }

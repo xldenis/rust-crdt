@@ -6,8 +6,7 @@ use std::mem;
 use serde::{Deserialize, Serialize};
 
 use crate::ctx::{AddCtx, ReadCtx, RmCtx};
-use crate::traits::{Causal, CmRDT, CvRDT};
-use crate::vclock::{Actor, Dot, VClock};
+use crate::{Actor, Causal, CmRDT, CvRDT, Dot, VClock};
 
 /// Val Trait alias to reduce redundancy in type decl.
 pub trait Val<A: Actor>: Clone + Causal<A> + CmRDT + CvRDT {}

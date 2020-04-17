@@ -5,8 +5,7 @@ use std::mem;
 use serde::{Deserialize, Serialize};
 
 use crate::ctx::{AddCtx, ReadCtx};
-use crate::traits::{Causal, CmRDT, CvRDT};
-use crate::vclock::{Actor, VClock};
+use crate::{Actor, Causal, CmRDT, CvRDT, VClock};
 
 /// MVReg (Multi-Value Register)
 /// On concurrent writes, we will keep all values for which

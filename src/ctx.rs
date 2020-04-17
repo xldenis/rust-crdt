@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::traits::CmRDT;
-use crate::vclock::{Actor, Dot, VClock};
+use crate::{Actor, CmRDT, Dot, VClock};
 
 /// ReadCtx's are used to extract data from CRDT's while maintaining some causal history.
 /// You should store ReadCtx's close to where mutation is exposed to the user.

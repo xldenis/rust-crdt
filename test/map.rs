@@ -1,8 +1,6 @@
 use crdts::{map, mvreg, Causal, CmRDT, CvRDT, Dot, MVReg, Map, VClock};
 use quickcheck::TestResult;
 
-use super::vclock;
-
 type TActor = u8;
 type TKey = u8;
 type TVal = MVReg<u8, TActor>;
@@ -16,14 +14,14 @@ fn build_ops(prims: (u8, Vec<(u8, u8, u8, u8, u8)>)) -> (TActor, Vec<TOp>) {
     for (i, op_data) in ops_data.into_iter().enumerate() {
         let (choice, inner_choice, key, inner_key, val) = op_data;
         let clock: VClock<_> = Dot::new(actor, i as u64).into();
-
+        let dot = clock.inc(actor);
         let op = match choice % 2 {
             0 => map::Op::Up {
-                dot: clock.inc(actor),
+                dot,
                 key,
                 op: match inner_choice % 2 {
                     0 => map::Op::Up {
-                        dot: clock.inc(actor),
+                        dot,
                         key: inner_key,
                         op: mvreg::Op::Put { clock, val },
                     },
@@ -131,7 +129,7 @@ fn test_remove() {
     let mut inner_map: Map<TKey, TVal, TActor> = Map::new();
     inner_map.apply(inner_map.update(110, add_ctx.clone(), |r, ctx| r.write(0, ctx)));
 
-    m.apply(m.update(101, add_ctx.clone(), |m, ctx| {
+    m.apply(m.update(101, add_ctx, |m, ctx| {
         m.update(110, ctx, |r, ctx| r.write(0, ctx))
     }));
 
@@ -376,8 +374,8 @@ fn test_idempotent_quickcheck_bug1() {
             },
         },
         map::Op::Rm {
-            clock: [Dot::new(21, 5)].iter().cloned().collect(),
-            keyset: [0].iter().copied().collect(),
+            clock: vec![Dot::new(21, 5)].into_iter().collect(),
+            keyset: vec![0].into_iter().collect(),
         },
         map::Op::Up {
             dot: Dot::new(21, 6),
@@ -794,7 +792,7 @@ quickcheck! {
     fn prop_forget_than_merge_same_as_merge_than_forget(
         ops1_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
         ops2_prim: (u8, Vec<(u8, u8, u8, u8, u8)>),
-        vclock_prim: Vec<u8>
+        vclock: VClock<u8>
     ) -> TestResult {
         let ops1 = build_ops(ops1_prim);
         let ops2 = build_ops(ops2_prim);
@@ -808,8 +806,6 @@ quickcheck! {
 
         apply_ops(&mut m1, &ops1.1);
         apply_ops(&mut m2, &ops2.1);
-
-        let vclock = vclock::build_vclock(vclock_prim);
 
         let mut m1_forget_after = m1.clone();
         let m2_forget_after = m2.clone();

@@ -12,7 +12,7 @@ fn main() {
 
     // alice and bob take a copy ...
     let mut bobs_copy = shared_password.clone();
-    let mut alices_copy = shared_password.clone();
+    let mut alices_copy = shared_password;
 
     // bob edits the shared password..
     bobs_copy
