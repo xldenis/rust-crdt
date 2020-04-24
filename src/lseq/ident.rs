@@ -1,4 +1,4 @@
-use crate::vclock::Actor;
+use crate::Actor;
 use bitvec::vec::*;
 use rand::Rng;
 use serde::{Deserialize, Serialize};

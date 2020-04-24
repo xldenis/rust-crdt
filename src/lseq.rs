@@ -44,7 +44,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::traits::CmRDT;
 
-use crate::vclock::{Actor, Dot};
+use crate::{Dot, Actor};
 
 // SiteId can be generalized to any A if there is a way to generate a single invalid actor id at every site
 // Currently we rely on every site using the Id 0 for that purpose.
