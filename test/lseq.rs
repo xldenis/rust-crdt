@@ -1,8 +1,9 @@
-use crdts::lseq::{LSeq, Op, SiteId};
+use crdts::lseq::{LSeq, Op};
 use crdts::CmRDT;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 
+type SiteId = u32;
 #[derive(Debug, Clone)]
 struct OperationList(pub Vec<Op<char, SiteId>>);
 
@@ -19,7 +20,7 @@ impl Arbitrary for OperationList {
             }
         };
 
-        let mut site1 = LSeq::new(SiteId::new(g.gen()));
+        let mut site1 = LSeq::new(g.gen());
         let ops = (0..size)
             .filter_map(|_| {
                 if g.gen() || site1.len() == 0 {
@@ -36,14 +37,14 @@ impl Arbitrary for OperationList {
 
 #[test]
 fn test_new() {
-    let site1: LSeq<char, SiteId> = LSeq::new(SiteId::new(0));
+    let site1: LSeq<char, SiteId> = LSeq::new(0);
     assert_eq!(site1.len(), 0);
     assert!(site1.is_empty());
 }
 
 #[test]
 fn test_is_empty() {
-    let mut site1 = LSeq::new(SiteId::new(0));
+    let mut site1 = LSeq::new(0);
     assert!(site1.is_empty());
 
     site1.insert_index(0, 'a');
@@ -52,7 +53,7 @@ fn test_is_empty() {
 
 #[test]
 fn test_out_of_order_inserts() {
-    let mut site1 = LSeq::new(SiteId::new(0));
+    let mut site1 = LSeq::new(0);
     site1.insert_index(0, 'a');
     site1.insert_index(1, 'c');
     site1.insert_index(1, 'b');
@@ -62,7 +63,7 @@ fn test_out_of_order_inserts() {
 
 #[test]
 fn test_delete_of_index() {
-    let mut site1 = LSeq::new(SiteId::new(0));
+    let mut site1 = LSeq::new(0);
     site1.insert_index(0, 'a');
     site1.insert_index(1, 'b');
     assert_eq!(site1.iter().collect::<String>(), "ab");
@@ -76,8 +77,8 @@ fn test_worst_case_inserts() {
     // by inserting always at the middle of the array, we grow the exponential tree beyond the
     // max depth very quickly. This is not looking too good, we need to tune some params.
 
-    let mut site = LSeq::new(SiteId::new(0));
-    // let mut site2 = LSeq::new(SiteId::new(1));
+    let mut site = LSeq::new(0);
+    // let mut site2 = LSeq::new((1));
 
     let n = 86; // maximum reliable number of inserts we can do in this worst case example
     for _ in 0..n {
@@ -94,8 +95,8 @@ fn test_insert_followed_by_deletes() {
 
     let mut s1 = rng.sample_iter(Alphanumeric);
 
-    let mut site1 = LSeq::new(SiteId::new(0));
-    let mut site2 = LSeq::new(SiteId::new(1));
+    let mut site1 = LSeq::new(0);
+    let mut site2 = LSeq::new(1);
 
     for _ in 0..5000 {
         let c = s1.next().unwrap();
@@ -124,8 +125,8 @@ fn test_insert_followed_by_deletes() {
 
 #[test]
 fn test_mutual_insert_qc1() {
-    let mut site0 = LSeq::new(SiteId::new(0));
-    let mut site1 = LSeq::new(SiteId::new(1));
+    let mut site0 = LSeq::new(0);
+    let mut site1 = LSeq::new(1);
     let plan = vec![
         (8, 24, false),
         (23, 1, true),
@@ -154,8 +155,8 @@ fn test_mutual_insert_qc1() {
 
 quickcheck! {
     fn prop_mutual_inserting(plan: Vec<(u8, usize, bool)>) -> bool {
-        let mut site0 = LSeq::new(SiteId::new(0));
-        let mut site1 = LSeq::new(SiteId::new(1));
+        let mut site0 = LSeq::new(0);
+        let mut site1 = LSeq::new(1);
         for (elem, idx, source_is_site0) in plan {
             let (source, replica) = if source_is_site0 {
                 (&mut site0, &mut site1)
@@ -177,8 +178,8 @@ quickcheck! {
         let mut op1 = op1.0.into_iter();
         let mut op2 = op2.0.into_iter();
 
-        let mut site1 = LSeq::new(SiteId::new(0));
-        let mut site2 = LSeq::new(SiteId::new(1));
+        let mut site1 = LSeq::new(0);
+        let mut site2 = LSeq::new(1);
 
         let mut s1_empty = false;
         let mut s2_empty = false;
@@ -213,8 +214,8 @@ quickcheck! {
     }
 
     fn prop_ops_are_idempotent(ops: OperationList) -> TestResult {
-        let mut site1 = LSeq::new(SiteId::new(0));
-        let mut site2 = LSeq::new(SiteId::new(1));
+        let mut site1 = LSeq::new(0);
+        let mut site2 = LSeq::new(1);
 
         for op in ops.0.into_iter() {
             // Apply the same op twice to site1
@@ -233,7 +234,7 @@ quickcheck! {
 
     fn prop_len_is_proportional_to_ops(oplist: OperationList) -> TestResult {
         let mut expected_len = 0;
-        let mut site1 = LSeq::new(SiteId::new(0));
+        let mut site1 = LSeq::new(0);
 
         for op in oplist.0.into_iter() {
             match op {

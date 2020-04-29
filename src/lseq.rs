@@ -7,12 +7,12 @@
 //! LSEQ [1] is a member of the LOGOOT [2] family of algorithms for CRDT sequences. The major difference
 //! with LOGOOT is in the _allocation strategy_ that LSEQ employs to handle insertions.
 //!
-//! Internally, LSEQ views the sequence as the leaves of an ordered, exponential tree. An
+//! Internally, LSEQ views the sequence as the nodes of an ordered, exponential tree. An
 //! exponential tree is a tree where the number of childen grows exponentially with the depth of a
 //! node. For LSEQ, each layer of the tree doubles the available space. Each child is numbered from
 //! 0..2^(3+depth). The first and last child of a node cannot be turned into leaves.
 //!
-//! The path from the root of a tree to a leaf is called the _identifier_ of an element.
+//! The path from the root of a tree to a node is called the _identifier_ of an element.
 //!
 //! The major challenge for LSEQs is the question of generating new identifiers for insertions.
 //!
@@ -44,26 +44,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Actor, CmRDT, Dot};
 
-// SiteId can be generalized to any A if there is a way to generate a single invalid actor id at every site
-// Currently we rely on every site using the Id 0 for that purpose.
-
-/// Actor type for LSEQ sites.
-#[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SiteId(u32);
-
-impl SiteId {
-    /// Create a `SiteId` from a `u32`.
-    pub fn new(id: u32) -> Self {
-        SiteId(id)
-    }
-}
-
-impl Default for SiteId {
-    fn default() -> Self {
-        SiteId(0)
-    }
-}
-
 /// An `Entry` to the LSEQ consists of:
 #[derive(Debug, Clone)]
 pub struct Entry<T, A: Actor> {
@@ -72,7 +52,7 @@ pub struct Entry<T, A: Actor> {
     /// The site id that inserted this entry.
     pub dot: Dot<A>,
     /// The element for the entry.
-    pub c: T,
+    pub val: T,
 }
 
 /// As described in the module documentation:
@@ -98,7 +78,7 @@ pub enum Op<T, A: Actor> {
         /// clock of site that issued insertion
         dot: Dot<A>,
         /// Element to insert
-        c: T,
+        val: T,
     },
     /// Delete an element
     Delete {
@@ -128,7 +108,7 @@ impl<T: Clone, A: Actor> LSeq<T, A> {
     /// # Panics
     ///
     /// * If the allocation of a new index was not between `ix` and `ix - 1`.
-    pub fn insert_index(&mut self, ix: usize, c: T) -> Op<T, A> {
+    pub fn insert_index(&mut self, ix: usize, val: T) -> Op<T, A> {
         let min_id = self.gen.lower();
         let max_id = self.gen.upper();
 
@@ -157,7 +137,7 @@ impl<T: Clone, A: Actor> LSeq<T, A> {
         let op = Op::Insert {
             id: ix_ident,
             dot: self.dot.clone(),
-            c,
+            val,
         };
         // TODO: refactor to follow the library API (don't apply ops immediately)
         self.dot.counter += 1;
@@ -211,7 +191,7 @@ impl<T: Clone, A: Actor> LSeq<T, A> {
 
     /// Get the elements represented by the LSEQ.
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.seq.iter().map(|Entry { c, .. }| c)
+        self.seq.iter().map(|Entry { val, .. }| val)
     }
 
     /// Actor who is initiating operations on this LSeq
@@ -220,10 +200,10 @@ impl<T: Clone, A: Actor> LSeq<T, A> {
     }
 
     /// Insert an identifier and value in the LSEQ
-    fn insert(&mut self, ix: Identifier<A>, dot: Dot<A>, c: T) {
+    fn insert(&mut self, ix: Identifier<A>, dot: Dot<A>, val: T) {
         // Inserts only have an impact if the identifier is not in the tree
         if let Err(res) = self.seq.binary_search_by(|e| e.id.cmp(&ix)) {
-            self.seq.insert(res, Entry { id: ix, dot, c });
+            self.seq.insert(res, Entry { id: ix, dot, val });
         }
     }
 
@@ -247,7 +227,7 @@ impl<T: Clone, A: Actor> CmRDT for LSeq<T, A> {
     /// result is a no-op
     fn apply(&mut self, op: Self::Op) {
         match op {
-            Op::Insert { id, dot, c } => self.insert(id, dot, c),
+            Op::Insert { id, dot, val } => self.insert(id, dot, val),
             Op::Delete { id, .. } => self.delete(id),
         }
     }
